@@ -26,6 +26,7 @@ C_GuiApp::C_GuiApp(std::filesystem::path workingDirectory) :
 
 	if (LoadSettings() == false)
 	{
+		CreateSettings();
 	}
 }
 
@@ -43,23 +44,68 @@ bool C_GuiApp::LoadSettings()
 bool C_GuiApp::CreateSettings()
 {
 	// TODO: create settings file
-
 	return LoadSettings();
+}
+
+void C_GuiApp::OpenSingleFile(const QString& fileString)
+{
+	m_VlcMedia.reset(new VlcMedia(fileString, true, m_VlcInstance.get()));
+	m_VlcPlayer->open(m_VlcMedia.get());
+}
+
+QStringList C_GuiApp::GetFileList(const QString& folderString, const QString& filterString)
+{
+	const QStringList filter(filterString);
+	m_VideoDirectory = QDir(folderString);
+
+	return m_VideoDirectory.entryList(filter, QDir::Files);
+}
+
+void C_GuiApp::FirstListItem()
+{
+	m_CurrentListItem = 0;
+	OpenSingleFile(m_VideoList.at(0));
+}
+
+void C_GuiApp::NextListItem()
+{
+	if (m_CurrentListItem + 1 > INT_MAX)
+	{
+		// TODO: Log numerical limit error
+		return;
+	}
+
+	OpenSingleFile(m_VideoList.at(++m_CurrentListItem));
 }
 
 void C_GuiApp::OpenLocalFolder()
 {
-	const QString fileString =
+	// Folder Selection
+	/*const QString folderString =
+		QFileDialog::getExistingDirectory
+		(
+			this,
+			tr("Open Directory"),
+			"/home",
+			QFileDialog::ShowDirsOnly
+			| QFileDialog::DontResolveSymlinks
+		);*/
+
+	const QString folderString =
 		QFileDialog::getOpenFileName(
 			this,
-			tr("Open folder"),
-			QDir::homePath(),
-			tr("Multimedia files(*)")
+			tr("Open XML File 2"), 
+			"/home", 
+			tr("XML Files (*.xml)")
 		);
 
-	if (fileString.isEmpty())
+	// Check if get directory failed
+	if (folderString.isEmpty())
 		return;
 
-	m_VlcMedia.reset(new VlcMedia(fileString, true, m_VlcInstance.get()));
-	m_VlcPlayer->open(m_VlcMedia.get());
+	// Get all videos from folder with .mp4 extension
+	m_VideoList = GetFileList(folderString, "*.mp4");
+
+	// Set current video as first video file
+	FirstListItem();
 }
