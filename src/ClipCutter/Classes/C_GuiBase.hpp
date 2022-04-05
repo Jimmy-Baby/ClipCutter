@@ -8,6 +8,7 @@
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QStatusBar>
 #include <QtWidgets/QWidget>
+#include <QtWidgets/QLabel>
 
 #include <VLCQtWidgets/WidgetSeek.h>
 #include <VLCQtWidgets/WidgetVideo.h>
@@ -29,7 +30,8 @@ public:
 	VlcWidgetVideo* VideoFrame;
 	VlcWidgetVolumeSlider* VolumeSlider;
 	QPushButton* Button_Pause;
-	QPushButton* Button_Stop;
+	QPushButton* Button_Next;
+	QLabel* Label_Times;
 	QMenuBar* MenuBar;
 	QMenu* Menu_File;
 	QStatusBar* StatusBar;
@@ -64,30 +66,40 @@ public:
 		sizePolicy.setHeightForWidth(VideoSeek->sizePolicy().hasHeightForWidth());
 		VideoSeek->setSizePolicy(sizePolicy);
 
-		gridLayout_2->addWidget(VideoSeek, 4, 0, 1, 2);
+		gridLayout_2->addWidget(VideoSeek, 2, 0, 1, 3);
 
 		VideoFrame = new VlcWidgetVideo(centralwidget);
 		VideoFrame->setObjectName(QStringLiteral("VideoFrame"));
 
-		gridLayout_2->addWidget(VideoFrame, 0, 0, 1, 2);
+		gridLayout_2->addWidget(VideoFrame, 0, 0, 1, 3);
 
 		VolumeSlider = new VlcWidgetVolumeSlider(centralwidget);
 		VolumeSlider->setObjectName(QStringLiteral("VolumeSlider"));
 		sizePolicy.setHeightForWidth(VolumeSlider->sizePolicy().hasHeightForWidth());
 		VolumeSlider->setSizePolicy(sizePolicy);
 
-		gridLayout_2->addWidget(VolumeSlider, 3, 0, 1, 2);
+		gridLayout_2->addWidget(VolumeSlider, 4, 0, 1, 2);
 
 		Button_Pause = new QPushButton(centralwidget);
 		Button_Pause->setObjectName(QStringLiteral("Button_Pause"));
 		Button_Pause->setCheckable(true);
 
-		gridLayout_2->addWidget(Button_Pause, 2, 0, 1, 1);
+		gridLayout_2->addWidget(Button_Pause, 3, 0, 1, 1);
 
-		Button_Stop = new QPushButton(centralwidget);
-		Button_Stop->setObjectName(QStringLiteral("Button_Stop"));
+		Button_Next = new QPushButton(centralwidget);
+		Button_Next->setObjectName(QStringLiteral("Button_Next"));
 
-		gridLayout_2->addWidget(Button_Stop, 2, 1, 1, 1);
+		gridLayout_2->addWidget(Button_Next, 3, 1, 1, 1);
+
+		QFont timesLabelFont;
+		timesLabelFont.setFamily(QStringLiteral("Segoe UI"));
+		timesLabelFont.setPointSize(11);
+
+		Label_Times = new QLabel(centralwidget);
+		Label_Times->setObjectName(QStringLiteral("label"));
+		Label_Times->setFont(timesLabelFont);
+
+		gridLayout_2->addWidget(Label_Times, 3, 2, 1, 1);
 
 		player->setCentralWidget(centralwidget);
 		MenuBar = new QMenuBar(player);
@@ -120,8 +132,9 @@ public:
 		actionStop->setText(QApplication::translate("player", "Stop", nullptr));
 		Action_OpenFolder->setText(QApplication::translate("player", "Open local folder", nullptr));
 		actionOpenUrl->setText(QApplication::translate("player", "Open URL", nullptr));
-		Button_Pause->setText(QApplication::translate("player", "Pause", nullptr));
-		Button_Stop->setText(QApplication::translate("player", "Stop", nullptr));
+		Button_Pause->setText(QApplication::translate("player", "Play/Pause", nullptr));
+		Button_Next->setText(QApplication::translate("player", "Next Clip", nullptr));
+		Label_Times->setText(QApplication::translate("player", "[ 00:00:00 -> (00:00:00 - 00:00:00) ]", nullptr));
 		Menu_File->setTitle(QApplication::translate("player", "File", nullptr));
 	}
 };

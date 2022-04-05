@@ -7,6 +7,7 @@
 #include <VLCQtCore/Media.h>
 #include <VLCQtCore/MediaPlayer.h>
 #include "C_GuiBase.hpp"
+#include "C_QueueItem.hpp"
 
 #pragma comment(lib, "Qt5Core")
 #pragma comment(lib, "Qt5Gui")
@@ -28,6 +29,7 @@ public:
 	void Show();
 	bool LoadSettings();
 	bool CreateSettings();
+	static void InputThread();
 
 	// Get/set
 public:
@@ -35,10 +37,15 @@ public:
 
 	// Protected functions
 protected:
+	void UpdateTime();
 	void OpenSingleFile(const QString& fileString);
 	QStringList GetFileList(const QString& folderString, const QString& filterString);
 	void FirstListItem();
 	void NextListItem();
+	void SetStartPoint();
+	void SetEndPoint();
+	QString ConstructFFMpegArguments(const char* inputPath, const char* outputPath, int startTime, int endTime) const;
+	void ProcessClips();
 	void OpenLocalFolder();
 
 	// Variables
@@ -53,7 +60,10 @@ private:
 	QStringList m_VideoList;
 
 	// Current list item index
-	int m_CurrentListItem;
+	int32_t m_CurrentListItem;
+
+	// Current FFMpeg queue list
+	std::vector<C_QueueItem> m_FFMpegQueueList;
 
 	std::unique_ptr<C_GuiBase> m_GuiBase;
 	std::unique_ptr<VlcInstance> m_VlcInstance;
