@@ -40,3 +40,7 @@ src/ClipCutter/.vs/ClipCutter/v17/.suo
 src/ClipCutter/x64/Release/ClipCutter.vcxproj.FileListAbsolute.txt
 *.pdb
 *.dat
+*.opendb
+*.db-shm
+*.db-wal
+src/.vs/ClipCutter/v17/.suo
