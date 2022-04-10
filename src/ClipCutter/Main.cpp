@@ -26,7 +26,7 @@ int InputThread(C_GuiApp* guiApp, const std::atomic_bool* flag)
 
 int main(int argc, char** argv)
 {
-	//ShowWindow(GetConsoleWindow(), SW_HIDE);
+	ShowWindow(GetConsoleWindow(), SW_HIDE);
 
 	std::atomic_bool threadShutdown = false;
 	QApplication qtApp(argc, argv);

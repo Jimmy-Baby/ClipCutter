@@ -235,11 +235,11 @@ QString C_GuiApp::ConstructFfMpegArguments(const char* inputPath, const char* ou
 	// ffmpeg arguments
 	QString arguments;
 
-	arguments += "-y";
-	arguments += QDir::toNativeSeparators(std::format(" -i \"{}\" ", inputPath).c_str());
-	arguments += std::format("-ss {} ", startTime).c_str();
-	arguments += std::format("-to {} ", endTime).c_str();
-	arguments += QDir::toNativeSeparators(std::format("-c copy \"{}\"", outputPath).c_str());
+	arguments += " -y";
+	arguments += QDir::toNativeSeparators(std::format(" -i \"{}\"", inputPath).c_str());
+	arguments += std::format(" -ss {}", startTime).c_str();
+	arguments += std::format(" -to {}", endTime).c_str();
+	arguments += QDir::toNativeSeparators(std::format(" -c copy \"{}\"", outputPath).c_str());
 
 	return arguments;
 }
@@ -334,7 +334,7 @@ void C_GuiApp::ProcessClips()
 	for (const C_QueueItem& item : m_FFMpegQueueList)
 	{
 		QFileInfo fileInfo = m_VideoDirectory.absoluteFilePath(m_VideoList[listCount]);
-		QString outDirectory = m_VideoDirectory.absolutePath() + "/";
+		QString outDirectory = m_VideoDirectory.absolutePath() + "/ClipCutterOutput/";
 
 		if (item.UseFullRename())
 		{
@@ -392,6 +392,12 @@ void C_GuiApp::OpenLocalFolder()
 
 	// Get all videos from folder with .mp4 extension
 	m_VideoList = GetFileList(folderString, "*.mp4");
+
+	// Create output folder
+	const QDir outDirectory(folderString);
+
+	if (outDirectory.exists("ClipCutterOutput") == false)
+		outDirectory.mkdir("ClipCutterOutput");
 
 	// Set current video as first video file
 	FirstListItem();

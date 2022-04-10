@@ -131,6 +131,7 @@ public:
 
 		Checkbox_DelOrig = new QCheckBox(player);
 		Checkbox_DelOrig->setObjectName("Checkbox_DelOrig");
+		Checkbox_DelOrig->setEnabled(false);
 
 		Grid_Layout->addWidget(Checkbox_DelOrig, 5, 0, 1, 1);
 
