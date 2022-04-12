@@ -4,6 +4,7 @@
 #include <process.h>
 
 #include <QtCore/QProcess>
+#include <QtGui/QKeyEvent>
 #include <QtWidgets/QFileDialog>
 #include <VLCQtCore/Common.h>
 #include "C_GuiApp.hpp"
@@ -26,9 +27,9 @@ C_GuiApp::C_GuiApp(std::filesystem::path workingDirectory) :
 	m_GuiBase->VideoSeek->setMediaPlayer(m_VlcPlayer.get());
 
 	connect(m_GuiBase->Action_OpenFolder, &QAction::triggered, this, &C_GuiApp::OpenLocalFolder);
-	connect(m_GuiBase->actionPause, &QAction::toggled, m_VlcPlayer.get(), &VlcMediaPlayer::togglePause);
-	connect(m_GuiBase->actionStop, &QAction::triggered, m_VlcPlayer.get(), &VlcMediaPlayer::stop);
-	connect(m_GuiBase->Button_Pause, &QPushButton::clicked, m_GuiBase->actionPause, &QAction::toggle);
+	connect(m_GuiBase->Action_Pause, &QAction::toggled, m_VlcPlayer.get(), &VlcMediaPlayer::togglePause);
+	connect(m_GuiBase->Action_Stop, &QAction::triggered, m_VlcPlayer.get(), &VlcMediaPlayer::stop);
+	connect(m_GuiBase->Button_Pause, &QPushButton::clicked, m_GuiBase->Action_Pause, &QAction::toggle);
 	connect(m_GuiBase->Button_Next, &QPushButton::clicked, this, &C_GuiApp::NextListItem);
 	connect(m_GuiBase->Button_CutAll, &QPushButton::clicked, this, &C_GuiApp::ProcessClips);
 	connect(m_GuiBase->Button_SetStart, &QPushButton::clicked, this, &C_GuiApp::SetStartPoint);
@@ -78,6 +79,30 @@ std::string SecondsToHms(const int totalSeconds)
 	const auto formatString = "{:02}:{:02}:{:02}";
 
 	return std::format(formatString, hours, minutes, seconds);
+}
+
+bool C_GuiApp::EventFilter(QObject*, QEvent* event)
+{
+	if (event->type() == QEvent::KeyPress)
+	{
+		const auto keyEvent = reinterpret_cast<QKeyEvent*>(event);
+
+		switch (keyEvent->key())
+		{
+		case Qt::Key_Q:
+			SetStartPoint();
+			break;
+
+		case Qt::Key_W:
+			SetEndPoint();
+			break;
+
+		default:
+			break;
+		}
+	}
+
+	return false;
 }
 
 void C_GuiApp::UpdateClipInfo() const

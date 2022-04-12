@@ -46,6 +46,7 @@ public:
 
 	// Protected functions
 protected:
+	bool EventFilter(QObject* Object, QEvent* event);
 	void UpdateClipInfo() const;
 	void UpdateNameLineEditRename();
 	void UpdateFileName();

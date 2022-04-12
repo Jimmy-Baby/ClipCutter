@@ -25,10 +25,9 @@ class C_GuiBase
 {
 public:
 	QAction* Action_Quit;
-	QAction* actionPause;
-	QAction* actionStop;
+	QAction* Action_Pause;
+	QAction* Action_Stop;
 	QAction* Action_OpenFolder;
-	QAction* actionOpenUrl;
 	QWidget* Widget_Central;
 	QGridLayout* Grid_Layout;
 	VlcWidgetSeek* VideoSeek;
@@ -60,15 +59,13 @@ public:
 
 		Action_Quit = new QAction(player);
 		Action_Quit->setObjectName(QStringLiteral("Action_Quit"));
-		actionPause = new QAction(player);
-		actionPause->setObjectName(QStringLiteral("actionPause"));
-		actionPause->setCheckable(true);
-		actionStop = new QAction(player);
-		actionStop->setObjectName(QStringLiteral("actionStop"));
+		Action_Pause = new QAction(player);
+		Action_Pause->setObjectName(QStringLiteral("Action_Pause"));
+		Action_Pause->setCheckable(true);
+		Action_Stop = new QAction(player);
+		Action_Stop->setObjectName(QStringLiteral("Action_Stop"));
 		Action_OpenFolder = new QAction(player);
 		Action_OpenFolder->setObjectName(QStringLiteral("Action_OpenFolder"));
-		actionOpenUrl = new QAction(player);
-		actionOpenUrl->setObjectName(QStringLiteral("actionOpenUrl"));
 		Widget_Central = new QWidget(player);
 		Widget_Central->setObjectName(QStringLiteral("Widget_Central"));
 		Grid_Layout = new QGridLayout(Widget_Central);
@@ -184,10 +181,9 @@ public:
 		player->setWindowTitle(QApplication::translate("player", "MassClipCutter", nullptr));
 
 		Action_Quit->setText(QApplication::translate("player", "Quit", nullptr));
-		actionPause->setText(QApplication::translate("player", "Pause", nullptr));
-		actionStop->setText(QApplication::translate("player", "Stop", nullptr));
+		Action_Pause->setText(QApplication::translate("player", "Pause", nullptr));
+		Action_Stop->setText(QApplication::translate("player", "Stop", nullptr));
 		Action_OpenFolder->setText(QApplication::translate("player", "Open local folder", nullptr));
-		actionOpenUrl->setText(QApplication::translate("player", "Open URL", nullptr));
 		Button_Pause->setText(QApplication::translate("player", "Play/Pause", nullptr));
 		Button_Next->setText(QApplication::translate("player", "Next Clip", nullptr));
 		Button_CutAll->setText(QApplication::translate("player", "Process Clips", nullptr));
