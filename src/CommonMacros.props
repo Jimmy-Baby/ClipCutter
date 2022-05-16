@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ImportGroup Label="PropertySheets" />
+  <PropertyGroup Label="UserMacros">
+    <BoostDirectory>D:\Projects\Visual Studio Projects\_THIRDPARTY\boost</BoostDirectory>
+    <QtInstallDir>C:\Qt\Qt-5.12.12</QtInstallDir>
+  </PropertyGroup>
+  <PropertyGroup>
+    <_PropertySheetDisplayName>Common Macros</_PropertySheetDisplayName>
+  </PropertyGroup>
+  <ItemDefinitionGroup />
+  <ItemGroup>
+    <BuildMacro Include="BoostDirectory">
+      <Value>$(BoostDirectory)</Value>
+    </BuildMacro>
+    <BuildMacro Include="QtInstallDir">
+      <Value>$(QtInstallDir)</Value>
+    </BuildMacro>
+  </ItemGroup>
+</Project>
