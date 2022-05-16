@@ -13,34 +13,33 @@
 
 # Compiled Dynamic libraries
 *.so
-*.dll
 *.dylib
+*.dll
 
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-
-# Executables
+# Various types
+*.exe
 *.out
 *.app
-*.exe
 *.ipch
-*.db
-src/ClipCutter/.vs/ClipCutter/v17/.suo
-*.tlog
-*.recipe
-*.log
-*.iobj
-*.ipdb
-src/ClipCutter/x64/Release/ClipCutter.vcxproj.FileListAbsolute.txt
-*.pdb
-*.dat
-*.opendb
-*.db-shm
 *.db-wal
-src/.vs/ClipCutter/v17/.suo
+*.db-shm
+*.db
+*.opendb
+*.tlog
+*.pdb
+*.recipe
+*.iobj
+*.log
+*.ipdb
+*.idb
+*.ilk
+*.idb
+*.enc
+*.res
+*.vsidx
+*.lock
+
+
+#Various directories
+/src/.vs
+/bin
