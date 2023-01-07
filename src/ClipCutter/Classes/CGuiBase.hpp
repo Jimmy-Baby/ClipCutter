@@ -1,6 +1,5 @@
 #pragma once
 
-#include <QtCore/QVariant>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QGridLayout>
 #include <QtWidgets/QMainWindow>
@@ -17,11 +16,11 @@
 #include <VLCQtWidgets/WidgetVideo.h>
 #include <VLCQtWidgets/WidgetVolumeSlider.h>
 
-#include "C_GuiApp.hpp"
+#include "CCutterApp.hpp"
 
 QT_BEGIN_NAMESPACE
 
-class C_GuiBase
+class CGuiBase
 {
 public:
 	QAction* Action_Quit;
@@ -35,6 +34,7 @@ public:
 	VlcWidgetVolumeSlider* VolumeSlider;
 	QPushButton* Button_Pause;
 	QPushButton* Button_Next;
+	QPushButton* Button_Skip;
 	QPushButton* Button_CutAll;
 	QCheckBox* Checkbox_DelOrig;
 	QPushButton* Button_ToggleRenamePostfix;
@@ -49,10 +49,13 @@ public:
 	QLabel* Label_StatusBar;
 	QProgressBar* ProgressBar_StatusBar;
 
+
 	void SetupUserInterface(QMainWindow* player)
 	{
 		if (player->objectName().isEmpty())
+		{
 			player->setObjectName(QStringLiteral("player"));
+		}
 
 		player->resize(1262, 900);
 		player->setMaximumSize(1262, 900);
@@ -78,80 +81,102 @@ public:
 		sizePolicy.setHeightForWidth(VideoSeek->sizePolicy().hasHeightForWidth());
 		VideoSeek->setSizePolicy(sizePolicy);
 
-		Grid_Layout->addWidget(VideoSeek, 2, 0, 1, 3);
+		/*
+		 * Items ordered by order shown on screen, top to bottom, left to right
+		 */
 
+
+		// Video frame
 		VideoFrame = new VlcWidgetVideo(Widget_Central);
 		VideoFrame->setObjectName(QStringLiteral("VideoFrame"));
 
-		Grid_Layout->addWidget(VideoFrame, 0, 0, 1, 3);
+		Grid_Layout->addWidget(VideoFrame, 0, 0, 1, 4);
 
-		VolumeSlider = new VlcWidgetVolumeSlider(Widget_Central);
-		VolumeSlider->setObjectName(QStringLiteral("VolumeSlider"));
-		sizePolicy.setHeightForWidth(VolumeSlider->sizePolicy().hasHeightForWidth());
-		VolumeSlider->setSizePolicy(sizePolicy);
 
-		// Grid_Layout->addWidget(VolumeSlider, 4, 0, 1, 2);
+		// Video seek
+		Grid_Layout->addWidget(VideoSeek, 2, 0, 1, 4);
 
+
+		// Play/Pause button
 		Button_Pause = new QPushButton(Widget_Central);
 		Button_Pause->setObjectName(QStringLiteral("Button_Pause"));
 		Button_Pause->setMaximumWidth(132);
 
 		Grid_Layout->addWidget(Button_Pause, 3, 0, 1, 1);
 
+
+		// Next clip button
 		Button_Next = new QPushButton(Widget_Central);
 		Button_Next->setObjectName(QStringLiteral("Button_Next"));
 
 		Grid_Layout->addWidget(Button_Next, 3, 1, 1, 1);
 
+
+		// Skip clip button
+		Button_Skip = new QPushButton(Widget_Central);
+		Button_Skip->setObjectName(QStringLiteral("Button_Skip"));
+
+		Grid_Layout->addWidget(Button_Skip, 3, 2, 1, 1);
+
+
+		// Toggle postfix/filename button
+		Button_ToggleRenamePostfix = new QPushButton(player);
+		Button_ToggleRenamePostfix->setObjectName("Button_ToggleRenamePostfix");
+
+		Grid_Layout->addWidget(Button_ToggleRenamePostfix, 3, 3, 1, 1);
+
+
+		// Process clips button
 		Button_CutAll = new QPushButton(Widget_Central);
 		Button_CutAll->setObjectName(QStringLiteral("Button_CutAll"));
 		Button_CutAll->setMaximumWidth(132);
 
 		Grid_Layout->addWidget(Button_CutAll, 4, 0, 1, 1);
 
+
+		// Set start point button
 		Button_SetStart = new QPushButton(Widget_Central);
 		Button_SetStart->setObjectName(QStringLiteral("Button_SetStart"));
+		//Button_SetStart->setFixedHeight(Button_SetStart->height() * 2);
 
+		//Grid_Layout->addWidget(Button_SetStart, 4, 1, 2, 1);
 		Grid_Layout->addWidget(Button_SetStart, 4, 1, 1, 1);
 
+
+		// Filename line edit
+		LineEdit_RenameOrPostfix = new QLineEdit(player);
+		LineEdit_RenameOrPostfix->setObjectName(QStringLiteral("LineEdit_RenameOrPostfix"));
+		LineEdit_RenameOrPostfix->setMaximumWidth(300);
+
+		Grid_Layout->addWidget(LineEdit_RenameOrPostfix, 4, 3, 1, 1);
+
+
+		// Delete original checkbox
+		Checkbox_DelOrig = new QCheckBox(player);
+		Checkbox_DelOrig->setObjectName("Checkbox_DelOrig");
+
+		Grid_Layout->addWidget(Checkbox_DelOrig, 5, 0, 1, 1);
+
+
+		// Set end point button
 		Button_SetEnd = new QPushButton(Widget_Central);
 		Button_SetEnd->setObjectName(QStringLiteral("Button_SetEnd"));
+		//Button_SetEnd->setFixedHeight(Button_SetEnd->height() * 2);
 
-		Grid_Layout->addWidget(Button_SetEnd, 5, 1, 1, 1);
+		//Grid_Layout->addWidget(Button_SetEnd, 4, 2, 2, 1);
+		Grid_Layout->addWidget(Button_SetEnd, 4, 2, 1, 1);
 
+
+		// Clip info text box
 		LineEdit_ClipInfo = new QLineEdit(Widget_Central);
 		LineEdit_ClipInfo->setObjectName(QStringLiteral("LineEdit_ClipInfo"));
 		LineEdit_ClipInfo->setReadOnly(true);
 		LineEdit_ClipInfo->setMaximumWidth(300);
 
-		Grid_Layout->addWidget(LineEdit_ClipInfo, 5, 2, 1, 1);
+		Grid_Layout->addWidget(LineEdit_ClipInfo, 5, 3, 1, 1);
 
-		Checkbox_DelOrig = new QCheckBox(player);
-		Checkbox_DelOrig->setObjectName("Checkbox_DelOrig");
-		Checkbox_DelOrig->setEnabled(false);
 
-		Grid_Layout->addWidget(Checkbox_DelOrig, 5, 0, 1, 1);
-
-		Button_ToggleRenamePostfix = new QPushButton(player);
-		Button_ToggleRenamePostfix->setObjectName("Button_ToggleRenamePostfix");
-
-		Grid_Layout->addWidget(Button_ToggleRenamePostfix, 3, 2, 1, 1);
-
-		LineEdit_RenameOrPostfix = new QLineEdit(player);
-		LineEdit_RenameOrPostfix->setObjectName(QStringLiteral("LineEdit_RenameOrPostfix"));
-		LineEdit_RenameOrPostfix->setMaximumWidth(300);
-
-		Grid_Layout->addWidget(LineEdit_RenameOrPostfix, 4, 2, 1, 1);
-
-		player->setCentralWidget(Widget_Central);
-		MenuBar = new QMenuBar(player);
-		MenuBar->setObjectName(QStringLiteral("MenuBar"));
-		MenuBar->setGeometry(QRect(0, 0, 640, 21));
-
-		Menu_File = new QMenu(MenuBar);
-		Menu_File->setObjectName(QStringLiteral("Menu_File"));
-		player->setMenuBar(MenuBar);
-
+		// Status bar + progress bar
 		Label_StatusBar = new QLabel(player);
 		Label_StatusBar->setObjectName(QStringLiteral("Label_StatusBar"));
 		Label_StatusBar->setMaximumWidth(100);
@@ -166,35 +191,58 @@ public:
 		StatusBar->addPermanentWidget(ProgressBar_StatusBar, Qt::AlignLeft);
 		player->setStatusBar(StatusBar);
 
+
+		// Volume slider (not shown)
+		VolumeSlider = new VlcWidgetVolumeSlider(Widget_Central);
+		VolumeSlider->setObjectName(QStringLiteral("VolumeSlider"));
+		sizePolicy.setHeightForWidth(VolumeSlider->sizePolicy().hasHeightForWidth());
+		VolumeSlider->setSizePolicy(sizePolicy);
+
+		// Grid_Layout->addWidget(VolumeSlider, 4, 0, 1, 2);
+
+
+		// Menu bar
+		player->setCentralWidget(Widget_Central);
+		MenuBar = new QMenuBar(player);
+		MenuBar->setObjectName(QStringLiteral("MenuBar"));
+		MenuBar->setGeometry(QRect(0, 0, 640, 21));
+
+		Menu_File = new QMenu(MenuBar);
+		Menu_File->setObjectName(QStringLiteral("Menu_File"));
+		player->setMenuBar(MenuBar);
+
 		MenuBar->addAction(Menu_File->menuAction());
 		Menu_File->addAction(Action_OpenFolder);
 		Menu_File->addSeparator();
 		Menu_File->addAction(Action_Quit);
 
-		SetStrings(player);
 
+		SetStrings(player);
 		QMetaObject::connectSlotsByName(player);
 	}
 
+
 	void SetStrings(QMainWindow* player) const
 	{
-		player->setWindowTitle(QApplication::translate("player", "MassClipCutter", nullptr));
+		player->setWindowTitle("ClipCutter");
 
-		Action_Quit->setText(QApplication::translate("player", "Quit", nullptr));
-		Action_Pause->setText(QApplication::translate("player", "Pause", nullptr));
-		Action_Stop->setText(QApplication::translate("player", "Stop", nullptr));
-		Action_OpenFolder->setText(QApplication::translate("player", "Open local folder", nullptr));
-		Button_Pause->setText(QApplication::translate("player", "Play/Pause", nullptr));
-		Button_Next->setText(QApplication::translate("player", "Next Clip", nullptr));
-		Button_CutAll->setText(QApplication::translate("player", "Process Clips", nullptr));
-		LineEdit_ClipInfo->setText(
-			QApplication::translate("player", "[ Clip 0 of 0 ]: Start: 00:00:00 - End: 00:00:00", nullptr));
-		Label_StatusBar->setText(QApplication::translate("player", "Ready", nullptr));
-		Checkbox_DelOrig->setText(QApplication::translate("player", "Delete Original", nullptr));
-		Button_ToggleRenamePostfix->setText(QApplication::translate("player", "Use File Postfix", nullptr));
-		Button_SetEnd->setText(QApplication::translate("player", "Set End Point", nullptr));
-		Button_SetStart->setText(QApplication::translate("player", "Use Start Point", nullptr));
-		LineEdit_RenameOrPostfix->setPlaceholderText(QApplication::translate("player", "Filename", nullptr));
-		Menu_File->setTitle(QApplication::translate("player", "File", nullptr));
+		Action_Quit->setText("Quit");
+		Action_Pause->setText("Pause");
+		Action_Stop->setText("Stop");
+		Action_OpenFolder->setText("Open local folder");
+		Button_Pause->setText("Play/Pause");
+		Button_Next->setText("Next Clip");
+		Button_Skip->setText("Skip Clip");
+		Button_CutAll->setText("Process Clips");
+		LineEdit_ClipInfo->setText("[ Clip 0 of 0 ]: Start: 00:00:00 - End: 00:00:00");
+		Label_StatusBar->setText("Ready");
+		Checkbox_DelOrig->setText("Delete Original");
+		Button_ToggleRenamePostfix->setText("Use File Postfix");
+		Button_SetEnd->setText("Set End Point");
+		Button_SetStart->setText("Set Start Point");
+
+		LineEdit_RenameOrPostfix->setPlaceholderText("Filename");
+
+		Menu_File->setTitle("File");
 	}
 };

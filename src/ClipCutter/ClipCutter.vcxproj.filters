@@ -14,7 +14,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Classes\C_GuiApp.cpp">
+    <ClCompile Include="Classes\CCutterApp.cpp">
       <Filter>Source Files\Classes</Filter>
     </ClCompile>
     <ClCompile Include="Main.cpp">
@@ -22,10 +22,10 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Classes\C_GuiApp.hpp">
+    <ClInclude Include="Classes\CCutterApp.hpp">
       <Filter>Source Files\Classes</Filter>
     </ClInclude>
-    <ClInclude Include="Classes\C_GuiBase.hpp" />
-    <ClInclude Include="Classes\C_QueueItem.hpp" />
+    <ClInclude Include="Classes\CGuiBase.hpp" />
+    <ClInclude Include="Classes\CQueueItem.hpp" />
   </ItemGroup>
 </Project>
