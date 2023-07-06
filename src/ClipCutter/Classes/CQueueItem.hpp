@@ -26,7 +26,7 @@ public:
 		  UseFullRename(true),
 		  DeleteOriginal(false),
 		  ReEncode(false),
-		  ReEncodeQuality(QUALITY_MEDIUM)
+		  ReEncodeQuality(QUALITY_HIGH)
 	{
 	}
 
