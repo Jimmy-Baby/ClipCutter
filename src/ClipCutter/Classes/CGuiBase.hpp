@@ -248,6 +248,10 @@ public:
 		LineEdit_ClipInfo->setText("[ Clip 0 of 0 ]: Start: 00:00:00.000 - End: 00:00:00.000");
 		Label_StatusBar->setText("Ready");
 		Checkbox_DelOrig->setText("Delete Original");
+
+		// Disable delete original AGAIn
+		Checkbox_DelOrig->setDisabled(true);
+
 		Checkbox_ReEncode->setText("Re-encode Video");
 		Combobox_ReEncodeQuality->setCurrentIndex(1);
 		Button_ToggleRenamePostfix->setText("Use File Postfix");
