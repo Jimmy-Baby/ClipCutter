@@ -40,6 +40,8 @@ CCutterApp::CCutterApp(std::filesystem::path workingDirectory)
 	connect(m_GuiBase->Button_SetStart, &QPushButton::clicked, this, &CCutterApp::SetStartPoint);
 	connect(m_GuiBase->Button_SetEnd, &QPushButton::clicked, this, &CCutterApp::SetEndPoint);
 	connect(m_GuiBase->Checkbox_DelOrig, &QCheckBox::toggled, this, &CCutterApp::UpdateDeleteOriginal);
+	connect(m_GuiBase->Checkbox_ReEncode, &QCheckBox::toggled, this, &CCutterApp::UpdateReEncode);
+	connect(m_GuiBase->Combobox_ReEncodeQuality, &QComboBox::editTextChanged, this, &CCutterApp::UpdateReEncodeQuality);
 	connect(m_GuiBase->Button_ToggleRenamePostfix, &QCheckBox::pressed, this, &CCutterApp::UpdateNameLineEditRename);
 	connect(m_GuiBase->LineEdit_RenameOrPostfix, &QLineEdit::textChanged, this, &CCutterApp::UpdateFileName);
 	connect(m_GuiBase->Action_Quit, &QAction::triggered, this, &CCutterApp::Quit);
@@ -68,20 +70,21 @@ void CCutterApp::Show()
 }
 
 
-std::string SecondsToHms(const int totalSeconds)
+std::string MillisecondsToHms(const int64_t ms)
 {
-	if (totalSeconds == -1)
+	if (ms == -1)
 	{
-		return "00:00:00";
+		return "00:00:00.000";
 	}
 
-	const int seconds = totalSeconds % 60;
-	const int minutes = totalSeconds / 60 % 60;
-	const int hours = totalSeconds / 60 / 60;
+	const int milliseconds = ms % 1000;
+	const int seconds = ms / 1000;
+	const int minutes = seconds / 60;
+	const int hours = minutes / 60;
 
-	const auto formatString = "{:02}:{:02}:{:02}";
+	const auto formatString = "{:02}:{:02}:{:02}.{:03}";
 
-	return std::format(formatString, hours, minutes, seconds);
+	return std::format(formatString, hours, minutes, seconds, milliseconds);
 }
 
 
@@ -116,10 +119,9 @@ void CCutterApp::UpdateClipInfo() const
 		"[ Clip {} of {} ]: Start: {} - End: {}",
 		m_CurrentListItem + 1,
 		m_VideoList.size(),
-		SecondsToHms(m_FFMpegQueueList[m_CurrentListItem].StartTime()),
-		SecondsToHms(m_FFMpegQueueList[m_CurrentListItem].EndTime())
+		MillisecondsToHms(m_FFMpegQueueList[m_CurrentListItem].StartTimeMs),
+		MillisecondsToHms(m_FFMpegQueueList[m_CurrentListItem].EndTimeMs)
 	);
-
 
 	m_GuiBase->LineEdit_ClipInfo->setText(clipString.c_str());
 }
@@ -129,12 +131,32 @@ void CCutterApp::UpdateDeleteOriginal()
 {
 	if (m_GuiBase->Checkbox_DelOrig->checkState() == Qt::CheckState::Checked)
 	{
-		m_FFMpegQueueList[m_CurrentListItem].SetDeleteOriginal(true);
+		m_FFMpegQueueList[m_CurrentListItem].DeleteOriginal = true;
 	}
 	else
 	{
-		m_FFMpegQueueList[m_CurrentListItem].SetDeleteOriginal(false);
+		m_FFMpegQueueList[m_CurrentListItem].DeleteOriginal = false;
 	}
+}
+
+
+void CCutterApp::UpdateReEncode()
+{
+	if (m_GuiBase->Checkbox_ReEncode->checkState() == Qt::CheckState::Checked)
+	{
+		m_FFMpegQueueList[m_CurrentListItem].ReEncode = true;
+	}
+	else
+	{
+		m_FFMpegQueueList[m_CurrentListItem].ReEncode = false;
+	}
+}
+
+
+void CCutterApp::UpdateReEncodeQuality()
+{
+	const QComboBox* qualityComboBox = m_GuiBase->Combobox_ReEncodeQuality;
+	m_FFMpegQueueList[m_CurrentListItem].ReEncodeQuality = static_cast<EReEncodeQuality>(qualityComboBox->currentIndex());
 }
 
 
@@ -149,13 +171,13 @@ void CCutterApp::UpdateNameLineEditRename()
 	{
 		m_GuiBase->Button_ToggleRenamePostfix->setText("Use File Rename");
 		m_GuiBase->LineEdit_RenameOrPostfix->setPlaceholderText("Postfix");
-		m_FFMpegQueueList[m_CurrentListItem].SetFullRenameMode(false);
+		m_FFMpegQueueList[m_CurrentListItem].UseFullRename = false;
 	}
 	else if (m_GuiBase->Button_ToggleRenamePostfix->text() == "Use File Rename")
 	{
 		m_GuiBase->Button_ToggleRenamePostfix->setText("Use File Postfix");
 		m_GuiBase->LineEdit_RenameOrPostfix->setPlaceholderText("Filename");
-		m_FFMpegQueueList[m_CurrentListItem].SetFullRenameMode(true);
+		m_FFMpegQueueList[m_CurrentListItem].UseFullRename = true;
 	}
 
 	m_GuiBase->LineEdit_RenameOrPostfix->setText("");
@@ -169,7 +191,7 @@ void CCutterApp::UpdateFileName()
 		return;
 	}
 
-	if (auto& currentListItem = m_FFMpegQueueList[m_CurrentListItem]; currentListItem.UseFullRename() == true)
+	if (auto& currentListItem = m_FFMpegQueueList[m_CurrentListItem]; currentListItem.UseFullRename == true)
 	{
 		currentListItem.SetOutputName(m_GuiBase->LineEdit_RenameOrPostfix->text());
 	}
@@ -233,17 +255,24 @@ void CCutterApp::FirstListItem()
 	m_CurrentListItem = 0;
 	OpenSingleFile(m_VideoDirectory.absoluteFilePath(m_VideoList.at(0)));
 
-	m_FFMpegQueueList.emplace_back(CQueueItem());
+	// Wait for file to be ready to play before creating queue item
+	while (m_VlcMedia->state() == Vlc::State::Idle || m_VlcMedia->state() == Vlc::State::Opening)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	}
+
+	int64_t durationMs = m_VlcMedia->duration(); // duration() returns value in milliseconds
+	m_FFMpegQueueList.emplace_back(0, durationMs);
 
 	if (m_GuiBase->Button_ToggleRenamePostfix->text() == "Use File Postfix")
 	{
 		m_FFMpegQueueList[m_CurrentListItem].SetOutputName("");
-		m_FFMpegQueueList[m_CurrentListItem].SetFullRenameMode(true);
+		m_FFMpegQueueList[m_CurrentListItem].UseFullRename = true;
 	}
 	else
 	{
-		m_FFMpegQueueList[m_CurrentListItem].SetOutputName(m_GuiBase->LineEdit_RenameOrPostfix->text());
-		m_FFMpegQueueList[m_CurrentListItem].SetFullRenameMode(false);
+		m_FFMpegQueueList[m_CurrentListItem].SetOutputPostfix(m_GuiBase->LineEdit_RenameOrPostfix->text());
+		m_FFMpegQueueList[m_CurrentListItem].UseFullRename = false;
 	}
 
 	UpdateClipInfo();
@@ -270,7 +299,7 @@ void CCutterApp::NextListItem()
 	}
 
 	// Check that end point is after start point, otherwise won't process properly
-	if (!(m_FFMpegQueueList[m_CurrentListItem].StartTime() < m_FFMpegQueueList[m_CurrentListItem].EndTime()))
+	if (m_FFMpegQueueList[m_CurrentListItem].StartTimeMs >= m_FFMpegQueueList[m_CurrentListItem].EndTimeMs)
 	{
 		MessageBoxA(nullptr, "Invalid start/end points", CLIPCUTTER_ERROR_STRING, MB_ICONWARNING);
 		return;
@@ -278,17 +307,23 @@ void CCutterApp::NextListItem()
 
 	OpenSingleFile(m_VideoDirectory.absoluteFilePath(m_VideoList.at(++m_CurrentListItem)));
 
-	m_FFMpegQueueList.emplace_back(CQueueItem(0, static_cast<int>(m_VlcMedia->duration())));
+	// Wait for file to be ready to play before creating queue item
+	while (m_VlcMedia->state() == Vlc::State::Idle || m_VlcMedia->state() == Vlc::State::Opening)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	}
+
+	m_FFMpegQueueList.emplace_back(0, m_VlcMedia->duration());
 
 	if (m_GuiBase->Button_ToggleRenamePostfix->text() == "Use File Postfix")
 	{
 		m_FFMpegQueueList[m_CurrentListItem].SetOutputName("");
-		m_FFMpegQueueList[m_CurrentListItem].SetFullRenameMode(true);
+		m_FFMpegQueueList[m_CurrentListItem].UseFullRename = true;
 	}
 	else
 	{
 		m_FFMpegQueueList[m_CurrentListItem].SetOutputName(m_GuiBase->LineEdit_RenameOrPostfix->text());
-		m_FFMpegQueueList[m_CurrentListItem].SetFullRenameMode(false);
+		m_FFMpegQueueList[m_CurrentListItem].UseFullRename = false;
 	}
 
 	UpdateClipInfo();
@@ -301,8 +336,8 @@ void CCutterApp::NextListItem()
 void CCutterApp::SkipListItem()
 {
 	// Set start and end time to 0 so that the file is not processed by ffmpeg
-	m_FFMpegQueueList[m_CurrentListItem].SetStartTime(0);
-	m_FFMpegQueueList[m_CurrentListItem].SetEndTime(0);
+	m_FFMpegQueueList[m_CurrentListItem].StartTimeMs = 0;
+	m_FFMpegQueueList[m_CurrentListItem].EndTimeMs = 0;
 
 	if (m_CurrentListItem + 1 >= m_VideoList.size())
 	{
@@ -312,17 +347,17 @@ void CCutterApp::SkipListItem()
 
 	OpenSingleFile(m_VideoDirectory.absoluteFilePath(m_VideoList.at(++m_CurrentListItem)));
 
-	m_FFMpegQueueList.emplace_back(CQueueItem(0, static_cast<int>(m_VlcMedia->duration())));
+	m_FFMpegQueueList.emplace_back(0, m_VlcMedia->duration());
 
 	if (m_GuiBase->Button_ToggleRenamePostfix->text() == "Use File Postfix")
 	{
 		m_FFMpegQueueList[m_CurrentListItem].SetOutputName("");
-		m_FFMpegQueueList[m_CurrentListItem].SetFullRenameMode(true);
+		m_FFMpegQueueList[m_CurrentListItem].UseFullRename = true;
 	}
 	else
 	{
 		m_FFMpegQueueList[m_CurrentListItem].SetOutputName(m_GuiBase->LineEdit_RenameOrPostfix->text());
-		m_FFMpegQueueList[m_CurrentListItem].SetFullRenameMode(false);
+		m_FFMpegQueueList[m_CurrentListItem].UseFullRename = false;
 	}
 
 	UpdateClipInfo();
@@ -363,14 +398,13 @@ void CCutterApp::OpenedNewList() const
 void CCutterApp::SetStartPoint()
 {
 	const auto videoTimeMs = m_VlcPlayer->time();
-	const auto videoTimeSeconds = videoTimeMs / 1000;
 
 	if (videoTimeMs == -1)
 	{
 		return; // No media loaded into player, return.
 	}
 
-	if (videoTimeSeconds >= m_FFMpegQueueList[m_CurrentListItem].EndTime())
+	if (videoTimeMs >= m_FFMpegQueueList[m_CurrentListItem].EndTimeMs)
 	{
 		MessageBoxA(nullptr, "Start point must be before end point", CLIPCUTTER_ERROR_STRING, MB_ICONWARNING);
 		return;
@@ -378,10 +412,10 @@ void CCutterApp::SetStartPoint()
 
 	if (m_CurrentListItem >= static_cast<int32_t>(m_FFMpegQueueList.size()))
 	{
-		m_FFMpegQueueList.emplace_back(CQueueItem());
+		m_FFMpegQueueList.emplace_back(0, 0);
 	}
 
-	m_FFMpegQueueList[m_CurrentListItem].SetStartTime(videoTimeSeconds);
+	m_FFMpegQueueList[m_CurrentListItem].StartTimeMs = videoTimeMs;
 
 	UpdateClipInfo();
 }
@@ -390,14 +424,13 @@ void CCutterApp::SetStartPoint()
 void CCutterApp::SetEndPoint()
 {
 	const auto videoTimeMs = m_VlcPlayer->time();
-	const auto videoTimeSeconds = videoTimeMs / 1000;
 
 	if (videoTimeMs == -1)
 	{
 		return; // No media loaded into player, return.
 	}
 
-	if (videoTimeSeconds <= m_FFMpegQueueList[m_CurrentListItem].StartTime())
+	if (videoTimeMs <= m_FFMpegQueueList[m_CurrentListItem].StartTimeMs)
 	{
 		MessageBoxA(nullptr, "End point must be after start point", CLIPCUTTER_ERROR_STRING, MB_ICONWARNING);
 		return;
@@ -405,10 +438,10 @@ void CCutterApp::SetEndPoint()
 
 	if (m_CurrentListItem >= static_cast<int32_t>(m_FFMpegQueueList.size()))
 	{
-		m_FFMpegQueueList.emplace_back(CQueueItem());
+		m_FFMpegQueueList.emplace_back(0, 0);
 	}
 
-	m_FFMpegQueueList[m_CurrentListItem].SetEndTime(videoTimeSeconds);
+	m_FFMpegQueueList[m_CurrentListItem].EndTimeMs = videoTimeMs;
 
 	UpdateClipInfo();
 }
@@ -427,16 +460,60 @@ void CCutterApp::UpdateProgressBar(const int clipsProcessed, const int clipsTota
 }
 
 
-QString CCutterApp::ConstructFfMpegArguments(const char* inputPath, const char* outputPath, const int startTime, const int endTime) const
+QString CCutterApp::ConstructFfMpegArguments(const char* inputPath,
+                                             const char* outputPath,
+                                             int64_t startTimeMs,
+                                             int64_t endTimeMs,
+                                             const bool reEncode = false,
+                                             const EReEncodeQuality reEncodeQuality = QUALITY_HIGH) const
 {
 	// ffmpeg arguments
 	QString arguments;
 
+	//// start time
+	//const int64_t startMs = startTimeMs % 1000;
+	//const int64_t startSe = startTimeMs / 1000;
+	//const int64_t startMi = startSe / 60;
+	//const int64_t startHr = startMi / 60;
+
+	//// end time
+	//const int64_t endMs = endTimeMs % 1000;
+	//const int64_t endSe = endTimeMs / 1000;
+	//const int64_t endMi = endSe / 60;
+	//const int64_t endHr = endMi / 60;
+
 	arguments += " -y";
 	arguments += QDir::toNativeSeparators(std::format(" -i \"{}\"", inputPath).c_str());
-	arguments += std::format(" -ss {}", startTime).c_str();
-	arguments += std::format(" -to {}", endTime).c_str();
-	arguments += QDir::toNativeSeparators(std::format(" -c copy \"{}\"", outputPath).c_str());
+	// arguments += std::format(" -ss {:02}:{:02}:{:02}.{:03}", startHr, startMi, startSe, startMs).c_str();
+	// arguments += std::format(" -to {:02}:{:02}:{:02}.{:03}", endHr, endMi, endSe, endMs).c_str();
+	arguments += std::format(" -ss {}ms", startTimeMs).c_str();
+	arguments += std::format(" -to {}ms", endTimeMs).c_str();
+
+	if (reEncode)
+	{
+		switch (reEncodeQuality)
+		{
+		case QUALITY_VERY_HIGH:
+			arguments += std::format("-c:v libx264 -crf 18 -preset slow -c:a copy\"{}\"", outputPath).c_str();
+			break;
+
+		case QUALITY_HIGH:
+			arguments += std::format("-c:v libx264 -crf 21 -preset slow -c:a copy\"{}\"", outputPath).c_str();
+			break;
+
+		case QUALITY_MEDIUM:
+			arguments += std::format("-c:v libx264 -crf 24 -preset slow -c:a copy\"{}\"", outputPath).c_str();
+			break;
+
+		case QUALITY_LOW:
+			arguments += std::format("-c:v libx264 -crf 27 -preset slow -c:a copy\"{}\"", outputPath).c_str();
+			break;
+		}
+	}
+	else
+	{
+		arguments += QDir::toNativeSeparators(std::format(" -c copy \"{}\"", outputPath).c_str());
+	}
 
 	return arguments;
 }
@@ -548,22 +625,26 @@ void CCutterApp::ProcessClips()
 		QFileInfo fileInfo = m_VideoDirectory.absoluteFilePath(m_VideoList[listCount]);
 		QString outDirectory = m_VideoDirectory.absolutePath() + "/ClipCutterOutput/";
 
-		if (item.UseFullRename())
+		if (item.UseFullRename)
 		{
 			ExecuteFFmpeg(ConstructFfMpegArguments(fileInfo.absoluteFilePath().toStdString().c_str(),
 			                                       (outDirectory + item.OutputName() + ".mp4").toStdString().c_str(),
-			                                       item.StartTime(),
-			                                       item.EndTime()));
+			                                       item.StartTimeMs,
+			                                       item.EndTimeMs,
+			                                       item.ReEncode,
+			                                       item.ReEncodeQuality));
 		}
 		else
 		{
 			ExecuteFFmpeg(ConstructFfMpegArguments(fileInfo.absoluteFilePath().toStdString().c_str(),
 			                                       (outDirectory + fileInfo.baseName() + "_" + item.OutputPostfix() + ".mp4").toStdString().c_str(),
-			                                       item.StartTime(),
-			                                       item.EndTime()));
+			                                       item.StartTimeMs,
+			                                       item.EndTimeMs,
+			                                       item.ReEncode,
+			                                       item.ReEncodeQuality));
 		}
 
-		if (item.DeleteOriginal())
+		if (item.DeleteOriginal)
 		{
 			std::filesystem::remove(m_VideoDirectory.absoluteFilePath(m_VideoList[listCount]).toStdString());
 		}

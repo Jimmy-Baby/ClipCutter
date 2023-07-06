@@ -2,7 +2,15 @@
 
 #include <QtCore/QString>
 
-class CQueueItem
+enum EReEncodeQuality
+{
+	QUALITY_VERY_HIGH,
+	QUALITY_HIGH,
+	QUALITY_MEDIUM,
+	QUALITY_LOW
+};
+
+struct CQueueItem
 {
 	// Execution
 public:
@@ -12,95 +20,47 @@ public:
 	}
 
 
-	CQueueItem(const int start, const int end)
-		: m_StartTime(start), m_EndTime(end), m_UseFullRename(true), m_DeleteOriginal(false)
+	CQueueItem(const int64_t start, const int64_t end)
+		: StartTimeMs(start),
+		  EndTimeMs(end),
+		  UseFullRename(true),
+		  DeleteOriginal(false),
+		  ReEncode(false),
+		  ReEncodeQuality(QUALITY_MEDIUM)
 	{
-	}
-
-
-	~CQueueItem() = default;
-
-	// Get/set
-public:
-	[[nodiscard]] auto StartTime() const
-	{
-		return m_StartTime;
-	}
-
-
-	[[nodiscard]] auto EndTime() const
-	{
-		return m_EndTime;
-	}
-
-
-	[[nodiscard]] auto UseFullRename() const
-	{
-		return m_UseFullRename;
-	}
-
-
-	[[nodiscard]] auto DeleteOriginal() const
-	{
-		return m_DeleteOriginal;
 	}
 
 
 	[[nodiscard]] auto OutputName() const
 	{
-		return m_NameOrPostfix;
+		return NameOrPostfix;
 	}
 
 
 	[[nodiscard]] auto OutputPostfix() const
 	{
-		return m_NameOrPostfix;
-	}
-
-
-	void SetStartTime(const int startTime)
-	{
-		m_StartTime = startTime;
-	}
-
-
-	void SetEndTime(const int endTime)
-	{
-		m_EndTime = endTime;
-	}
-
-
-	void SetFullRenameMode(const bool value)
-	{
-		m_UseFullRename = value;
-	}
-
-
-	void SetDeleteOriginal(const bool value)
-	{
-		m_DeleteOriginal = value;
+		return NameOrPostfix;
 	}
 
 
 	void SetOutputName(const QString& value)
 	{
-		m_NameOrPostfix = value;
+		NameOrPostfix = value;
 	}
 
 
 	void SetOutputPostfix(const QString& value)
 	{
-		m_NameOrPostfix = value;
+		NameOrPostfix = value;
 	}
 
 
-	// Protected functions
-protected:
 	// Variables
-private:
-	int m_StartTime;
-	int m_EndTime;
-	bool m_UseFullRename;
-	bool m_DeleteOriginal;
-	QString m_NameOrPostfix;
+	int64_t StartTimeMs;
+	int64_t EndTimeMs;
+	bool UseFullRename;
+	bool DeleteOriginal;
+	QString NameOrPostfix;
+	bool ReEncode;
+	EReEncodeQuality ReEncodeQuality;
 };

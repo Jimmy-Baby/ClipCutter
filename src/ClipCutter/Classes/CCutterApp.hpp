@@ -85,6 +85,8 @@ protected:
 	bool EventFilter(QObject* object, QEvent* event);
 	void UpdateClipInfo() const;
 	void UpdateDeleteOriginal();
+	void UpdateReEncode();
+	void UpdateReEncodeQuality();
 	void UpdateNameLineEditRename();
 	void UpdateFileName();
 	void OpenSingleFile(const QString& fileString);
@@ -93,9 +95,13 @@ protected:
 	void FirstListItem();
 	void Quit();
 	void UpdateProgressBar(int clipsProcessed, int clipsTotal) const;
-	QString ConstructFfMpegArguments(const char* inputPath, const char* outputPath, int startTime, int endTime) const;
+	QString ConstructFfMpegArguments(const char* inputPath,
+	                                 const char* outputPath,
+	                                 int64_t startTimeMs,
+	                                 int64_t endTimeMs,
+	                                 bool reEncode,
+	                                 EReEncodeQuality reEncodeQuality) const;
 	void OpenLocalFolder();
-
 
 	// Variables
 private:

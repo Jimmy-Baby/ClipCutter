@@ -10,6 +10,7 @@
 #include <QtWidgets/QWidget>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QCheckBox>
+#include <QtWidgets/QComboBox>
 #include <QtWidgets/QLineEdit>
 
 #include <VLCQtWidgets/WidgetSeek.h>
@@ -17,6 +18,7 @@
 #include <VLCQtWidgets/WidgetVolumeSlider.h>
 
 #include "CCutterApp.hpp"
+#include "CGuiBase.hpp"
 
 QT_BEGIN_NAMESPACE
 
@@ -48,6 +50,8 @@ public:
 	QStatusBar* StatusBar;
 	QLabel* Label_StatusBar;
 	QProgressBar* ProgressBar_StatusBar;
+	QCheckBox* Checkbox_ReEncode;
+	QComboBox* Combobox_ReEncodeQuality;
 
 
 	void SetupUserInterface(QMainWindow* player)
@@ -85,17 +89,14 @@ public:
 		 * Items ordered by order shown on screen, top to bottom, left to right
 		 */
 
-
 		// Video frame
 		VideoFrame = new VlcWidgetVideo(Widget_Central);
 		VideoFrame->setObjectName(QStringLiteral("VideoFrame"));
 
 		Grid_Layout->addWidget(VideoFrame, 0, 0, 1, 4);
 
-
 		// Video seek
 		Grid_Layout->addWidget(VideoSeek, 2, 0, 1, 4);
-
 
 		// Play/Pause button
 		Button_Pause = new QPushButton(Widget_Central);
@@ -104,13 +105,11 @@ public:
 
 		Grid_Layout->addWidget(Button_Pause, 3, 0, 1, 1);
 
-
 		// Next clip button
 		Button_Next = new QPushButton(Widget_Central);
 		Button_Next->setObjectName(QStringLiteral("Button_Next"));
 
 		Grid_Layout->addWidget(Button_Next, 3, 1, 1, 1);
-
 
 		// Skip clip button
 		Button_Skip = new QPushButton(Widget_Central);
@@ -118,13 +117,11 @@ public:
 
 		Grid_Layout->addWidget(Button_Skip, 3, 2, 1, 1);
 
-
 		// Toggle postfix/filename button
 		Button_ToggleRenamePostfix = new QPushButton(player);
 		Button_ToggleRenamePostfix->setObjectName("Button_ToggleRenamePostfix");
 
 		Grid_Layout->addWidget(Button_ToggleRenamePostfix, 3, 3, 1, 1);
-
 
 		// Process clips button
 		Button_CutAll = new QPushButton(Widget_Central);
@@ -132,7 +129,6 @@ public:
 		Button_CutAll->setMaximumWidth(132);
 
 		Grid_Layout->addWidget(Button_CutAll, 4, 0, 1, 1);
-
 
 		// Set start point button
 		Button_SetStart = new QPushButton(Widget_Central);
@@ -142,7 +138,6 @@ public:
 		//Grid_Layout->addWidget(Button_SetStart, 4, 1, 2, 1);
 		Grid_Layout->addWidget(Button_SetStart, 4, 1, 1, 1);
 
-
 		// Filename line edit
 		LineEdit_RenameOrPostfix = new QLineEdit(player);
 		LineEdit_RenameOrPostfix->setObjectName(QStringLiteral("LineEdit_RenameOrPostfix"));
@@ -150,13 +145,27 @@ public:
 
 		Grid_Layout->addWidget(LineEdit_RenameOrPostfix, 4, 3, 1, 1);
 
-
 		// Delete original checkbox
 		Checkbox_DelOrig = new QCheckBox(player);
 		Checkbox_DelOrig->setObjectName("Checkbox_DelOrig");
 
 		Grid_Layout->addWidget(Checkbox_DelOrig, 5, 0, 1, 1);
 
+		// ReEncode checkbox
+		Checkbox_ReEncode = new QCheckBox(player);
+		Checkbox_ReEncode->setObjectName("Checkbox_ReEncode");
+
+		Grid_Layout->addWidget(Checkbox_ReEncode, 5, 1, 1, 1);
+
+		// ReEncodeQuality combobox
+		Combobox_ReEncodeQuality = new QComboBox(player);
+		Combobox_ReEncodeQuality->setObjectName("Combobox_ReEncodeQuality");
+		Combobox_ReEncodeQuality->addItem("Very High Quality");
+		Combobox_ReEncodeQuality->addItem("High Quality");
+		Combobox_ReEncodeQuality->addItem("Medium Quality");
+		Combobox_ReEncodeQuality->addItem("Low Quality");
+
+		Grid_Layout->addWidget(Combobox_ReEncodeQuality, 6, 1, 1, 1);
 
 		// Set end point button
 		Button_SetEnd = new QPushButton(Widget_Central);
@@ -166,7 +175,6 @@ public:
 		//Grid_Layout->addWidget(Button_SetEnd, 4, 2, 2, 1);
 		Grid_Layout->addWidget(Button_SetEnd, 4, 2, 1, 1);
 
-
 		// Clip info text box
 		LineEdit_ClipInfo = new QLineEdit(Widget_Central);
 		LineEdit_ClipInfo->setObjectName(QStringLiteral("LineEdit_ClipInfo"));
@@ -174,7 +182,6 @@ public:
 		LineEdit_ClipInfo->setMaximumWidth(300);
 
 		Grid_Layout->addWidget(LineEdit_ClipInfo, 5, 3, 1, 1);
-
 
 		// Status bar + progress bar
 		Label_StatusBar = new QLabel(player);
@@ -191,7 +198,6 @@ public:
 		StatusBar->addPermanentWidget(ProgressBar_StatusBar, Qt::AlignLeft);
 		player->setStatusBar(StatusBar);
 
-
 		// Volume slider (not shown)
 		VolumeSlider = new VlcWidgetVolumeSlider(Widget_Central);
 		VolumeSlider->setObjectName(QStringLiteral("VolumeSlider"));
@@ -199,7 +205,6 @@ public:
 		VolumeSlider->setSizePolicy(sizePolicy);
 
 		// Grid_Layout->addWidget(VolumeSlider, 4, 0, 1, 2);
-
 
 		// Menu bar
 		player->setCentralWidget(Widget_Central);
@@ -216,9 +221,15 @@ public:
 		Menu_File->addSeparator();
 		Menu_File->addAction(Action_Quit);
 
-
 		SetStrings(player);
 		QMetaObject::connectSlotsByName(player);
+
+		Button_Next->setEnabled(false);
+		Button_Skip->setEnabled(false);
+		Button_Pause->setEnabled(false);
+		Button_SetEnd->setEnabled(false);
+		Button_SetStart->setEnabled(false);
+		Button_ToggleRenamePostfix->setEnabled(false);
 	}
 
 
@@ -234,9 +245,11 @@ public:
 		Button_Next->setText("Next Clip");
 		Button_Skip->setText("Skip Clip");
 		Button_CutAll->setText("Process Clips");
-		LineEdit_ClipInfo->setText("[ Clip 0 of 0 ]: Start: 00:00:00 - End: 00:00:00");
+		LineEdit_ClipInfo->setText("[ Clip 0 of 0 ]: Start: 00:00:00.000 - End: 00:00:00.000");
 		Label_StatusBar->setText("Ready");
 		Checkbox_DelOrig->setText("Delete Original");
+		Checkbox_ReEncode->setText("Re-encode Video");
+		Combobox_ReEncodeQuality->setCurrentIndex(1);
 		Button_ToggleRenamePostfix->setText("Use File Postfix");
 		Button_SetEnd->setText("Set End Point");
 		Button_SetStart->setText("Set Start Point");
