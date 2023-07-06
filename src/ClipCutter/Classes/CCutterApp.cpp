@@ -494,19 +494,19 @@ QString CCutterApp::ConstructFfMpegArguments(const char* inputPath,
 		switch (reEncodeQuality)
 		{
 		case QUALITY_VERY_HIGH:
-			arguments += std::format("-c:v libx264 -crf 18 -preset slow -c:a copy\"{}\"", outputPath).c_str();
+			arguments += std::format(" -c:v libx264 -crf 18 -preset slow -c:a copy \"{}\"", outputPath).c_str();
 			break;
 
 		case QUALITY_HIGH:
-			arguments += std::format("-c:v libx264 -crf 21 -preset slow -c:a copy\"{}\"", outputPath).c_str();
+			arguments += std::format(" -c:v libx264 -crf 21 -preset slow -c:a copy \"{}\"", outputPath).c_str();
 			break;
 
 		case QUALITY_MEDIUM:
-			arguments += std::format("-c:v libx264 -crf 24 -preset slow -c:a copy\"{}\"", outputPath).c_str();
+			arguments += std::format(" -c:v libx264 -crf 24 -preset slow -c:a copy \"{}\"", outputPath).c_str();
 			break;
 
 		case QUALITY_LOW:
-			arguments += std::format("-c:v libx264 -crf 27 -preset slow -c:a copy\"{}\"", outputPath).c_str();
+			arguments += std::format(" -c:v libx264 -crf 27 -preset slow -c:a copy \"{}\"", outputPath).c_str();
 			break;
 		}
 	}
@@ -514,6 +514,10 @@ QString CCutterApp::ConstructFfMpegArguments(const char* inputPath,
 	{
 		arguments += QDir::toNativeSeparators(std::format(" -c copy \"{}\"", outputPath).c_str());
 	}
+
+	// Print out arguments for debugging
+	puts(arguments.toStdString().c_str());
+	puts("\n");
 
 	return arguments;
 }
