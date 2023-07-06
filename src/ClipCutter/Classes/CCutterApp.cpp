@@ -692,4 +692,7 @@ void CCutterApp::OpenLocalFolder()
 
 	// Set current video as first video file
 	FirstListItem();
+
+	// Update UI
+	OpenedNewList();
 }
