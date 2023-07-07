@@ -313,7 +313,8 @@ void CCutterApp::NextListItem()
 		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
 
-	m_FFMpegQueueList.emplace_back(0, m_VlcMedia->duration());
+	int64_t durationMs = m_VlcMedia->duration(); // duration() returns value in milliseconds
+	m_FFMpegQueueList.emplace_back(0, durationMs);
 
 	if (m_GuiBase->Button_ToggleRenamePostfix->text() == "Use File Postfix")
 	{
@@ -347,7 +348,14 @@ void CCutterApp::SkipListItem()
 
 	OpenSingleFile(m_VideoDirectory.absoluteFilePath(m_VideoList.at(++m_CurrentListItem)));
 
-	m_FFMpegQueueList.emplace_back(0, m_VlcMedia->duration());
+	// Wait for file to be ready to play before creating queue item
+	while (m_VlcMedia->state() == Vlc::State::Idle || m_VlcMedia->state() == Vlc::State::Opening)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	}
+
+	int64_t durationMs = m_VlcMedia->duration(); // duration() returns value in milliseconds
+	m_FFMpegQueueList.emplace_back(0, durationMs);
 
 	if (m_GuiBase->Button_ToggleRenamePostfix->text() == "Use File Postfix")
 	{
