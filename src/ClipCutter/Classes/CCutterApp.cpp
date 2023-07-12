@@ -70,17 +70,17 @@ void CCutterApp::Show()
 }
 
 
-std::string MillisecondsToHms(const int64_t ms)
+std::string MillisecondsToHmsms(const int64_t ms)
 {
 	if (ms == -1)
 	{
 		return "00:00:00.000";
 	}
 
-	const int milliseconds = ms % 1000;
-	const int seconds = ms / 1000;
-	const int minutes = seconds / 60;
-	const int hours = minutes / 60;
+	const int64_t milliseconds = ms % 1000;
+	const int64_t seconds = ms / 1000 % 60;
+	const int64_t minutes = ms / 1000 / 60 % 60;
+	const int64_t hours = ms / 1000 / 60 / 60 % 60;
 
 	const auto formatString = "{:02}:{:02}:{:02}.{:03}";
 
@@ -119,8 +119,8 @@ void CCutterApp::UpdateClipInfo() const
 		"[ Clip {} of {} ]: Start: {} - End: {}",
 		m_CurrentListItem + 1,
 		m_VideoList.size(),
-		MillisecondsToHms(m_FFMpegQueueList[m_CurrentListItem].StartTimeMs),
-		MillisecondsToHms(m_FFMpegQueueList[m_CurrentListItem].EndTimeMs)
+		MillisecondsToHmsms(m_FFMpegQueueList[m_CurrentListItem].StartTimeMs),
+		MillisecondsToHmsms(m_FFMpegQueueList[m_CurrentListItem].EndTimeMs)
 	);
 
 	m_GuiBase->LineEdit_ClipInfo->setText(clipString.c_str());
