@@ -13,7 +13,6 @@ enum EReEncodeQuality
 struct CQueueItem
 {
 	// Execution
-public:
 	CQueueItem()
 		: CQueueItem(0, 0)
 	{
@@ -26,7 +25,8 @@ public:
 		  UseFullRename(true),
 		  DeleteOriginal(false),
 		  ReEncode(false),
-		  ReEncodeQuality(QUALITY_HIGH)
+		  ReEncodeQuality(QUALITY_HIGH),
+		  ShouldProcess(false)
 	{
 	}
 
@@ -63,4 +63,6 @@ public:
 	QString NameOrPostfix;
 	bool ReEncode;
 	EReEncodeQuality ReEncodeQuality;
+
+	bool ShouldProcess;
 };

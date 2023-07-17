@@ -312,6 +312,9 @@ void CCutterApp::NextListItem()
 		return;
 	}
 
+	// Now that we're done with the item, set it to be processed
+	m_FFMpegQueueList[m_CurrentListItem].ShouldProcess = true;
+
 	OpenSingleFile(m_VideoDirectory.absoluteFilePath(m_VideoList.at(++m_CurrentListItem)));
 
 	// Wait for file to be ready to play before creating queue item
@@ -338,6 +341,13 @@ void CCutterApp::NextListItem()
 
 	// Set the 'delete original' checkbox to false for each video by default
 	m_GuiBase->Checkbox_DelOrig->setCheckState(Qt::CheckState::Unchecked);
+
+	// Update queue item to match current UI state
+	UpdateDeleteOriginal();
+	UpdateReEncode();
+	UpdateReEncodeQuality();
+	UpdateNameLineEditRename();
+	UpdateFileName();
 }
 
 
@@ -352,6 +362,9 @@ void CCutterApp::SkipListItem()
 		EndOfList();
 		return;
 	}
+
+	// Since we're skipping, we set this item to NOT be processed
+	m_FFMpegQueueList[m_CurrentListItem].ShouldProcess = false;
 
 	OpenSingleFile(m_VideoDirectory.absoluteFilePath(m_VideoList.at(++m_CurrentListItem)));
 
@@ -641,31 +654,34 @@ void CCutterApp::ProcessClips()
 
 	for (const CQueueItem& item : m_FFMpegQueueList)
 	{
-		QFileInfo fileInfo = m_VideoDirectory.absoluteFilePath(m_VideoList[listCount]);
-		QString outDirectory = m_VideoDirectory.absolutePath() + "/ClipCutterOutput/";
+		if (item.ShouldProcess)
+		{
+			QFileInfo fileInfo = m_VideoDirectory.absoluteFilePath(m_VideoList[listCount]);
+			QString outDirectory = m_VideoDirectory.absolutePath() + "/ClipCutterOutput/";
 
-		if (item.UseFullRename)
-		{
-			ExecuteFFmpeg(ConstructFfMpegArguments(fileInfo.absoluteFilePath().toStdString().c_str(),
-			                                       (outDirectory + item.OutputName() + ".mp4").toStdString().c_str(),
-			                                       item.StartTimeMs,
-			                                       item.EndTimeMs,
-			                                       item.ReEncode,
-			                                       item.ReEncodeQuality));
-		}
-		else
-		{
-			ExecuteFFmpeg(ConstructFfMpegArguments(fileInfo.absoluteFilePath().toStdString().c_str(),
-			                                       (outDirectory + fileInfo.baseName() + "_" + item.OutputPostfix() + ".mp4").toStdString().c_str(),
-			                                       item.StartTimeMs,
-			                                       item.EndTimeMs,
-			                                       item.ReEncode,
-			                                       item.ReEncodeQuality));
-		}
+			if (item.UseFullRename)
+			{
+				ExecuteFFmpeg(ConstructFfMpegArguments(fileInfo.absoluteFilePath().toStdString().c_str(),
+				                                       (outDirectory + item.OutputName() + ".mp4").toStdString().c_str(),
+				                                       item.StartTimeMs,
+				                                       item.EndTimeMs,
+				                                       item.ReEncode,
+				                                       item.ReEncodeQuality));
+			}
+			else
+			{
+				ExecuteFFmpeg(ConstructFfMpegArguments(fileInfo.absoluteFilePath().toStdString().c_str(),
+				                                       (outDirectory + fileInfo.baseName() + "_" + item.OutputPostfix() + ".mp4").toStdString().c_str(),
+				                                       item.StartTimeMs,
+				                                       item.EndTimeMs,
+				                                       item.ReEncode,
+				                                       item.ReEncodeQuality));
+			}
 
-		if (item.DeleteOriginal)
-		{
-			std::filesystem::remove(m_VideoDirectory.absoluteFilePath(m_VideoList[listCount]).toStdString());
+			if (item.DeleteOriginal)
+			{
+				std::filesystem::remove(m_VideoDirectory.absoluteFilePath(m_VideoList[listCount]).toStdString());
+			}
 		}
 
 		listCount++;
