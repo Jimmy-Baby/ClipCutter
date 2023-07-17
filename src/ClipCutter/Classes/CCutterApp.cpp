@@ -355,8 +355,17 @@ void CCutterApp::NextListItem()
 	UpdateDeleteOriginal();
 	UpdateReEncode();
 	UpdateReEncodeQuality();
-	UpdateNameLineEditRename();
-	UpdateFileName();
+
+	if (m_GuiBase->Button_ToggleRenamePostfix->text() == "Use File Postfix")
+	{
+		m_FFMpegQueueList[m_CurrentListItem].UseFullRename = true;
+		m_FFMpegQueueList[m_CurrentListItem].SetOutputName(m_GuiBase->LineEdit_RenameOrPostfix->text());
+	}
+	else if (m_GuiBase->Button_ToggleRenamePostfix->text() == "Use File Rename")
+	{
+		m_FFMpegQueueList[m_CurrentListItem].UseFullRename = false;
+		m_FFMpegQueueList[m_CurrentListItem].SetOutputName(m_GuiBase->LineEdit_RenameOrPostfix->text());
+	}
 }
 
 
@@ -401,6 +410,22 @@ void CCutterApp::SkipListItem()
 
 	// Set the 'delete original' checkbox to false for each video by default
 	m_GuiBase->Checkbox_DelOrig->setCheckState(Qt::CheckState::Unchecked);
+
+	// Update queue item to match current UI state
+	UpdateDeleteOriginal();
+	UpdateReEncode();
+	UpdateReEncodeQuality();
+
+	if (m_GuiBase->Button_ToggleRenamePostfix->text() == "Use File Postfix")
+	{
+		m_FFMpegQueueList[m_CurrentListItem].UseFullRename = true;
+		m_FFMpegQueueList[m_CurrentListItem].SetOutputName(m_GuiBase->LineEdit_RenameOrPostfix->text());
+	}
+	else if (m_GuiBase->Button_ToggleRenamePostfix->text() == "Use File Rename")
+	{
+		m_FFMpegQueueList[m_CurrentListItem].UseFullRename = false;
+		m_FFMpegQueueList[m_CurrentListItem].SetOutputName(m_GuiBase->LineEdit_RenameOrPostfix->text());
+	}
 }
 
 
