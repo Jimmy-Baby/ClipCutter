@@ -276,6 +276,13 @@ void CCutterApp::FirstListItem()
 	}
 
 	UpdateClipInfo();
+
+	// Update queue item to match current UI state
+	UpdateDeleteOriginal();
+	UpdateReEncode();
+	UpdateReEncodeQuality();
+	UpdateNameLineEditRename();
+	UpdateFileName();
 }
 
 
