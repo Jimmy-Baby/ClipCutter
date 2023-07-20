@@ -91,7 +91,7 @@ protected:
 	void UpdateFileName();
 	void OpenSingleFile(const QString& fileString);
 	void TryPlayPause();
-	QStringList GetFileList(const QString& folderString, const QString& filterString);
+	QStringList GetFileList(const QString& folderString, const QStringList& filterStringList);
 	void FirstListItem();
 	void Quit();
 	void UpdateProgressBar(int clipsProcessed, int clipsTotal) const;

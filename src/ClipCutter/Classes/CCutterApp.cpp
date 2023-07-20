@@ -241,12 +241,10 @@ void CCutterApp::TryPlayPause()
 }
 
 
-QStringList CCutterApp::GetFileList(const QString& folderString, const QString& filterString)
+QStringList CCutterApp::GetFileList(const QString& folderString, const QStringList& filterStringList)
 {
-	const QStringList filter(filterString);
 	m_VideoDirectory = QDir(folderString);
-
-	return m_VideoDirectory.entryList(filter, QDir::Files);
+	return m_VideoDirectory.entryList(filterStringList, QDir::Files);
 }
 
 
@@ -748,8 +746,8 @@ void CCutterApp::OpenLocalFolder()
 
 	m_FFMpegQueueList.clear();
 
-	// Get all videos from folder with .mp4 extension
-	m_VideoList = GetFileList(folderString, "*.mp4");
+	// Get all videos from folder with accepted extensions
+	m_VideoList = GetFileList(folderString, { "*.mp4", "*.mkv", "*.avi", "*.mov" });
 
 	// Create output folder
 	const QDir outDirectory(folderString);
@@ -757,6 +755,14 @@ void CCutterApp::OpenLocalFolder()
 	if (outDirectory.exists("ClipCutterOutput") == false)
 	{
 		[[maybe_unused]] bool directoryMade = outDirectory.mkdir("ClipCutterOutput");
+	}
+
+	if (m_VideoList.isEmpty())
+	{
+		EndOfList();
+
+		MessageBoxA(nullptr, "No compatible video types found", "Error", MB_ICONINFORMATION);
+		return;
 	}
 
 	// Set current video as first video file
