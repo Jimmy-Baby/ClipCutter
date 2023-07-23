@@ -26,7 +26,7 @@ CCutterApp::CCutterApp(std::filesystem::path workingDirectory)
 
 	m_GuiBase->VideoFrame->setMediaPlayer(m_VlcPlayer.get());
 	m_GuiBase->VolumeSlider->setMediaPlayer(m_VlcPlayer.get());
-	m_GuiBase->VolumeSlider->setVolume(125);
+	m_GuiBase->VolumeSlider->setVolume(100);
 	m_GuiBase->VolumeSlider->hide();
 	m_GuiBase->VideoSeek->setMediaPlayer(m_VlcPlayer.get());
 
