@@ -1,4 +1,4 @@
-# ClipCutter 2.0.0 Beta
+# ClipCutter
 
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Jimmy-Baby/Mass-Clip-Cutter/blob/master/LICENSE)
 
