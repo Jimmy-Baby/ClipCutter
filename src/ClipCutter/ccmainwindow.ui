@@ -1,0 +1,415 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ClipCutterWindow</class>
+ <widget class="QMainWindow" name="ClipCutterWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1280</width>
+    <height>720</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>1280</width>
+    <height>720</height>
+   </size>
+  </property>
+  <property name="acceptDrops">
+   <bool>true</bool>
+  </property>
+  <property name="windowTitle">
+   <string>ClipCutter</string>
+  </property>
+  <property name="toolTipDuration">
+   <number>0</number>
+  </property>
+  <property name="styleSheet">
+   <string notr="true"/>
+  </property>
+  <widget class="QWidget" name="centralWidget">
+   <layout class="QGridLayout" name="gridLayout">
+    <item row="1" column="0">
+     <widget class="QGroupBox" name="timelineBox">
+      <property name="title">
+       <string/>
+      </property>
+      <layout class="QGridLayout" name="gridLayout_6">
+       <item row="0" column="0">
+        <widget class="QLabel" name="timelineLabel">
+         <property name="text">
+          <string>00:00:00.000</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="2">
+        <widget class="QLabel" name="startEndLabel">
+         <property name="text">
+          <string>Start: 00:00:00.000 / End: 00:00:00.000</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QSlider" name="timelineSlider">
+         <property name="styleSheet">
+          <string notr="true"/>
+         </property>
+         <property name="maximum">
+          <number>1</number>
+         </property>
+         <property name="value">
+          <number>0</number>
+         </property>
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item row="1" column="1">
+     <widget class="QGroupBox" name="volumeBox">
+      <property name="maximumSize">
+       <size>
+        <width>200</width>
+        <height>16777215</height>
+       </size>
+      </property>
+      <property name="title">
+       <string/>
+      </property>
+      <layout class="QGridLayout" name="gridLayout_7">
+       <item row="0" column="0">
+        <widget class="QLabel" name="volumeLabel">
+         <property name="text">
+          <string>Volume:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QSlider" name="volumeSlider">
+         <property name="maximum">
+          <number>100</number>
+         </property>
+         <property name="value">
+          <number>100</number>
+         </property>
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item row="1" column="2">
+     <widget class="QGroupBox" name="processButtonBox">
+      <property name="title">
+       <string/>
+      </property>
+      <layout class="QGridLayout" name="gridLayout_8">
+       <property name="leftMargin">
+        <number>4</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>4</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <property name="spacing">
+        <number>4</number>
+       </property>
+       <item row="0" column="0">
+        <widget class="QPushButton" name="processButton">
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="text">
+          <string>Process Clips</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QComboBox" name="qualityCombo">
+         <property name="toolTip">
+          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Copy - (Time: Instant) Copies all video and audio data directly, may result in out-of-sync video/audio in some cases.&lt;/p&gt;&lt;p&gt;Low - (Slow-ish) Lowest quality re-encoding (CRF 27).&lt;/p&gt;&lt;p&gt;Medium - (Slower) Medium quality re-encoding (CRF 24).&lt;/p&gt;&lt;p&gt;High - (Slowest) High quality re-encoding (CRF 21).&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;|</string>
+         </property>
+         <property name="statusTip">
+          <string/>
+         </property>
+         <property name="editable">
+          <bool>false</bool>
+         </property>
+         <property name="currentText">
+          <string/>
+         </property>
+         <property name="currentIndex">
+          <number>-1</number>
+         </property>
+         <property name="placeholderText">
+          <string>Select quality</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item row="0" column="0">
+     <widget class="QGroupBox" name="playerBox">
+      <property name="minimumSize">
+       <size>
+        <width>850</width>
+        <height>0</height>
+       </size>
+      </property>
+      <property name="title">
+       <string>Player</string>
+      </property>
+      <layout class="QGridLayout" name="playerLayout"/>
+     </widget>
+    </item>
+    <item row="0" column="1" colspan="2">
+     <widget class="QGroupBox" name="clipsBox">
+      <property name="minimumSize">
+       <size>
+        <width>400</width>
+        <height>0</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>400</width>
+        <height>16777215</height>
+       </size>
+      </property>
+      <property name="title">
+       <string>Clips</string>
+      </property>
+      <layout class="QGridLayout" name="gridLayout_2">
+       <item row="1" column="0">
+        <widget class="QGroupBox" name="clipsGroupBox">
+         <property name="title">
+          <string/>
+         </property>
+         <layout class="QGridLayout" name="gridLayout_3">
+          <item row="0" column="0">
+           <widget class="QTreeWidget" name="clipsTree">
+            <property name="indentation">
+             <number>0</number>
+            </property>
+            <property name="animated">
+             <bool>false</bool>
+            </property>
+            <property name="headerHidden">
+             <bool>false</bool>
+            </property>
+            <property name="expandsOnDoubleClick">
+             <bool>true</bool>
+            </property>
+            <attribute name="headerDefaultSectionSize">
+             <number>35</number>
+            </attribute>
+            <column>
+             <property name="text">
+              <string>Skip?</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>Name</string>
+             </property>
+            </column>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item row="0" column="0">
+        <widget class="QGroupBox" name="clipNameBox">
+         <property name="title">
+          <string/>
+         </property>
+         <layout class="QGridLayout" name="gridLayout_5">
+          <item row="0" column="1">
+           <widget class="QLineEdit" name="clipNameEdit"/>
+          </item>
+          <item row="0" column="0">
+           <widget class="QLabel" name="clipNameLabel">
+            <property name="text">
+             <string>Clip Name:</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item row="2" column="0" colspan="3">
+     <widget class="QProgressBar" name="progressBar">
+      <property name="value">
+       <number>0</number>
+      </property>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QToolBar" name="toolBar">
+   <property name="windowTitle">
+    <string>toolBar</string>
+   </property>
+   <property name="movable">
+    <bool>false</bool>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>TopToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>false</bool>
+   </attribute>
+   <addaction name="actionOpen"/>
+   <addaction name="actionPlayPause"/>
+   <addaction name="actionPrev"/>
+   <addaction name="actionStop"/>
+   <addaction name="actionNext"/>
+   <addaction name="actionSkip"/>
+   <addaction name="actionSetStart"/>
+   <addaction name="actionSetEnd"/>
+  </widget>
+  <action name="actionOpen">
+   <property name="icon">
+    <iconset resource="ClipCutterResources.qrc">
+     <normaloff>:/icons/icons/folder-open-regular.svg</normaloff>:/icons/icons/folder-open-regular.svg</iconset>
+   </property>
+   <property name="text">
+    <string>Open Folder</string>
+   </property>
+   <property name="toolTip">
+    <string>Open Folder (Ctrl + O)</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+O</string>
+   </property>
+  </action>
+  <action name="actionPlayPause">
+   <property name="icon">
+    <iconset resource="ClipCutterResources.qrc">
+     <normaloff>:/icons/icons/play-solid.svg</normaloff>:/icons/icons/play-solid.svg</iconset>
+   </property>
+   <property name="text">
+    <string>PlayPause</string>
+   </property>
+   <property name="toolTip">
+    <string>Play/Pause (Spacebar)</string>
+   </property>
+   <property name="shortcut">
+    <string>Space</string>
+   </property>
+  </action>
+  <action name="actionNext">
+   <property name="icon">
+    <iconset resource="ClipCutterResources.qrc">
+     <normaloff>:/icons/icons/forward-step-solid.svg</normaloff>:/icons/icons/forward-step-solid.svg</iconset>
+   </property>
+   <property name="text">
+    <string>Next</string>
+   </property>
+   <property name="toolTip">
+    <string>Next Clip (E)</string>
+   </property>
+   <property name="shortcut">
+    <string>E</string>
+   </property>
+  </action>
+  <action name="actionPrev">
+   <property name="icon">
+    <iconset resource="ClipCutterResources.qrc">
+     <normaloff>:/icons/icons/backward-step-solid.svg</normaloff>:/icons/icons/backward-step-solid.svg</iconset>
+   </property>
+   <property name="text">
+    <string>Prev</string>
+   </property>
+   <property name="toolTip">
+    <string>Prev Clip (Q)</string>
+   </property>
+   <property name="shortcut">
+    <string>Q</string>
+   </property>
+  </action>
+  <action name="actionSetStart">
+   <property name="icon">
+    <iconset resource="ClipCutterResources.qrc">
+     <normaloff>:/icons/icons/s-solid.svg</normaloff>:/icons/icons/s-solid.svg</iconset>
+   </property>
+   <property name="text">
+    <string>SetStart</string>
+   </property>
+   <property name="toolTip">
+    <string>Set Start (A)</string>
+   </property>
+   <property name="shortcut">
+    <string>A</string>
+   </property>
+  </action>
+  <action name="actionSetEnd">
+   <property name="icon">
+    <iconset resource="ClipCutterResources.qrc">
+     <normaloff>:/icons/icons/e-solid.svg</normaloff>:/icons/icons/e-solid.svg</iconset>
+   </property>
+   <property name="text">
+    <string>SetEnd</string>
+   </property>
+   <property name="toolTip">
+    <string>Set End (D)</string>
+   </property>
+   <property name="shortcut">
+    <string>D</string>
+   </property>
+  </action>
+  <action name="actionStop">
+   <property name="icon">
+    <iconset resource="ClipCutterResources.qrc">
+     <normaloff>:/icons/icons/stop-solid.svg</normaloff>:/icons/icons/stop-solid.svg</iconset>
+   </property>
+   <property name="text">
+    <string>Stop</string>
+   </property>
+   <property name="toolTip">
+    <string>Stop (S)</string>
+   </property>
+   <property name="shortcut">
+    <string>S</string>
+   </property>
+  </action>
+  <action name="actionSkip">
+   <property name="icon">
+    <iconset resource="ClipCutterResources.qrc">
+     <normaloff>:/icons/icons/forward-fast-solid.svg</normaloff>:/icons/icons/forward-fast-solid.svg</iconset>
+   </property>
+   <property name="text">
+    <string>MarkSkip</string>
+   </property>
+   <property name="toolTip">
+    <string>Mark as skipped, and go to next clip (Ctrl + E)</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+E</string>
+   </property>
+  </action>
+ </widget>
+ <layoutdefault spacing="6" margin="11"/>
+ <resources>
+  <include location="ClipCutterResources.qrc"/>
+ </resources>
+ <connections/>
+</ui>
