@@ -1,6 +1,6 @@
 # ClipCutter 2.0.0 Beta
 
-[![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/yourusername/clipcutter/blob/master/LICENSE)
+[![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Jimmy-Baby/Mass-Clip-Cutter/blob/master/LICENSE)
 
 ## Description
 
@@ -44,7 +44,7 @@ I welcome contributions from the community to make ClipCutter even better. Creat
 
 ## License
 
-ClipCutter is open-source software licensed under the MIT License. See the [LICENSE.md](https://github.com/Jimmy-Baby/Mass-Clip-Cutter/blob/master/LICENSE) file for more details.
+ClipCutter is open-source software licensed under the MIT License. See the [LICENSE](https://github.com/Jimmy-Baby/Mass-Clip-Cutter/blob/master/LICENSE) file for more details.
 
 ## Roadmap
 
