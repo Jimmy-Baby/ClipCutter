@@ -20,7 +20,7 @@ Installing ClipCutter is a breeze. Follow these steps to get started:
 
 ```
 # Download
-Download the latest [release](https://github.com/Jimmy-Baby/Mass-Clip-Cutter/releases/download/v1.0.1/ClipCutter.v1.0.1.zip)
+Download the latest [release](https://github.com/Jimmy-Baby/Mass-Clip-Cutter/releases/download/v2.0/ClipCutter.v2.0.0b.zip)
 
 # Extract
 Extract the files into the folder of your choosing, this is where ClipCutter will live.
