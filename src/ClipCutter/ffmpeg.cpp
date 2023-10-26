@@ -11,23 +11,25 @@ namespace FFmpeg
 {
 	bool ExecuteFFmpeg(const QString& args)
 	{
-		const std::string argsString = args.toStdString();
+        const QByteArray argsAsByteArray = args.toLatin1();
 
-		SHELLEXECUTEINFOA ShExecInfo = { 0 };
-		ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFOA);
-		ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
-		ShExecInfo.hwnd = nullptr;
-		ShExecInfo.lpVerb = nullptr;
-		ShExecInfo.lpFile = "ffmpeg";
-		ShExecInfo.lpParameters = argsString.data();
-		ShExecInfo.lpDirectory = nullptr;
-		ShExecInfo.nShow = SW_SHOW;
-		ShExecInfo.hInstApp = nullptr;
+		SHELLEXECUTEINFOA shExecInfo = { 0 };
+		shExecInfo.cbSize = sizeof(SHELLEXECUTEINFOA);
+		shExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+		shExecInfo.hwnd = nullptr;
+		shExecInfo.lpVerb = nullptr;
+		shExecInfo.lpFile = "ffmpeg";
+        shExecInfo.lpParameters = argsAsByteArray.data();
+		shExecInfo.lpDirectory = nullptr;
+		shExecInfo.nShow = SW_SHOW;
+		shExecInfo.hInstApp = nullptr;
 
-		const bool result = ShellExecuteExA(&ShExecInfo);
+		const bool result = ShellExecuteExA(&shExecInfo);
 
-		WaitForSingleObject(ShExecInfo.hProcess, INFINITE);
-		CloseHandle(ShExecInfo.hProcess);
+		WaitForSingleObject(shExecInfo.hProcess, INFINITE);
+		CloseHandle(shExecInfo.hProcess);
+
+
 
 		return result;
 	}
@@ -79,4 +81,9 @@ namespace FFmpeg
         const QString arguments = ConstructCmdArgs(item, outputDirectory, quality);
 		ExecuteFFmpeg(arguments);
 	}
+
+    bool FFmpegTest()
+    {
+        return ExecuteFFmpeg("");
+    }
 }

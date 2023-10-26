@@ -8,6 +8,7 @@
 namespace FFmpeg
 {
     void ProcessQueueItem(const QueueItem* item, const QString& outputDirectory, EReEncodeQuality quality);
+    bool FFmpegTest();
 }
 
 #endif // FFMPEG_H
