@@ -52,4 +52,4 @@ Here are some of the features I plan to implement in future releases:
 
 ## Support
 
-For support or bug reports, please visit our [Issue Tracker](https://github.com/Jimmy-Baby/Mass-Clip-Cutter/issues).
+For support or bug reports, please visit the [Issue Tracker](https://github.com/Jimmy-Baby/Mass-Clip-Cutter/issues).
