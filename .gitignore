@@ -43,3 +43,5 @@
 #Various directories
 /src-old/.vs
 /bin
+src/ClipCutter/ClipCutter.pro.user
+*.user
