@@ -6,7 +6,7 @@
 
 ClipCutter is software that aims to simplify the management of video game clips. This software is written in C++ within the Qt framework. It is designed to tackle the challenge of dealing with large numbers of gaming clips, allowing users to efficiently cut and optimize their clips for storage. 🎮💾
 
-## What's New in Version 2.0.0 Beta
+## What's New in v2
 
 In the newest release, ClipCutter has been completely reimagined and rebuilt from the ground up. I've focused on enhancing both functionality and user experience, making it easier and more enjoyable to use:
 
@@ -19,10 +19,11 @@ I've streamlined the design to provide an intuitive and user-friendly experience
 Installing ClipCutter is a breeze. Follow these steps to get started:
 
 ### Download
-Download the latest [release](https://github.com/Jimmy-Baby/Mass-Clip-Cutter/releases/download/v2.0.1/ClipCutter.v2.0.1.zip)
+Download the latest [release](https://github.com/Jimmy-Baby/ClipCutter/releases/download/v2.1.0/ClipCutter.v2.1.0.zip)
 
 ### Extract
 Extract the files into the folder of your choosing, this is where ClipCutter will live.
+Right click ClipCutter.exe -> Send to... -> Desktop (Create Shortcut) to create a shortcut on your Desktop.
 
 ### Run
 Run ClipCutter.exe to get started.
