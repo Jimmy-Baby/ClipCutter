@@ -23,6 +23,7 @@ Download the latest [release](https://github.com/Jimmy-Baby/ClipCutter/releases/
 
 ### Extract
 Extract the files into the folder of your choosing, this is where ClipCutter will live.
+
 Right click ClipCutter.exe -> Send to... -> Desktop (Create Shortcut) to create a shortcut on your Desktop.
 
 ### Run
