@@ -6,6 +6,7 @@
 #include <QSlider>
 #include <QRandomGenerator>
 #include <QTreeWidgetItem>
+#include <QVector>
 
 #include "ccmainwindow.h"
 #include "ui_ccmainwindow.h"
@@ -67,12 +68,6 @@ CClipCutterWindow::CClipCutterWindow(QWidget *parent)
 
 CClipCutterWindow::~CClipCutterWindow()
 {
-    // Clear queue memory
-    for (const QueueItem* ptr : videoList)
-    {
-        delete ptr;
-    }
-
     delete ui;
 }
 
@@ -100,11 +95,6 @@ void CClipCutterWindow::ActionOpenTriggered()
     videoDirectory = QDir(folderString);
 
     // Clear lists incase previous items exist
-    for (const QueueItem* ptr : videoList)
-    {
-        delete ptr;
-    }
-
     videoList.clear();
     ui->clipsTree->clear();
 
@@ -138,7 +128,7 @@ void CClipCutterWindow::ActionOpenTriggered()
         newItem->EndTimeMs = Utility::GetVideoLength(newItem->OriginalPath);
 
         // Add queue item to list
-        videoList.push_back(newItem);
+        videoList.push_back(std::unique_ptr<QueueItem>(newItem));
 
         // Connect signal for 'Skip?' checkbox, do this with item that was added to list
         connect(ui->clipsTree, &QTreeWidget::itemChanged, newItem, &QueueItem::UpdateSkip);
@@ -336,8 +326,9 @@ void CClipCutterWindow::OnVideoNameChanged(QString newName)
 
 int CClipCutterWindow::GetVideoIndexFromTreeItem(QTreeWidgetItem* treeItem)
 {
-    for (QueueItem* item : videoList)
+    for (auto it = videoList.begin(); it != videoList.end(); ++it)
     {
+        const QueueItem* item = it->get();
         if (item->TreeItem == treeItem)
         {
             return item->ListIndex;
@@ -360,7 +351,7 @@ void CClipCutterWindow::UpdateStartEndUI()
 
 void CClipCutterWindow::OpenVideo(qint64 videoIndex)
 {
-    currentVideo = videoList[videoIndex];
+    currentVideo = videoList.at(videoIndex).get();
 
     ActionStopTriggered();
     player->setSource(QUrl::fromLocalFile(currentVideo->OriginalPath));
@@ -426,12 +417,12 @@ void CClipCutterWindow::ProcessClips()
 
     DisableActions();
 
-    for (int index = 0; index < videoList.length(); ++index)
+    for (int index = 0; index < videoList.size(); ++index)
     {
-        const QueueItem* queueItem = videoList[index];
+        const QueueItem* queueItem = videoList.at(index).get();
 
         // Set progress bar
-        const int progress = static_cast<float>(index + 1) * (100.0f / static_cast<float>(videoList.length()));
+        const int progress = static_cast<float>(index) * (100.0f / static_cast<float>(videoList.size()));
         ui->progressBar->setValue(progress);
 
         if (queueItem->Skip)
@@ -442,6 +433,8 @@ void CClipCutterWindow::ProcessClips()
         EReEncodeQuality quality = static_cast<EReEncodeQuality>(ui->qualityCombo->currentIndex());
         FFmpeg::ProcessQueueItem(queueItem, outputDirectory, quality);
     }
+
+    ui->progressBar->setValue(100);
 
     EnableActions();
 }

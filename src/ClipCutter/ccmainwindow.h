@@ -48,7 +48,7 @@ private:
     void ProcessClips();
 
     // UI
-    Ui::ClipCutterWindow *ui;
+    Ui::ClipCutterWindow* ui;
     QMediaPlayer* player;
     QVideoWidget* videoWidget;
     QAudioOutput* audioOutput;
@@ -57,7 +57,7 @@ private:
 
     // Videos
     QueueItem* currentVideo;
-    QVector<QueueItem*> videoList;
+    std::vector<std::unique_ptr<QueueItem>> videoList;
     QDir videoDirectory;
     QString outputDirectory;
 };

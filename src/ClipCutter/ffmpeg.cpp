@@ -21,15 +21,13 @@ namespace FFmpeg
 		shExecInfo.lpFile = "ffmpeg";
         shExecInfo.lpParameters = argsAsByteArray.data();
 		shExecInfo.lpDirectory = nullptr;
-		shExecInfo.nShow = SW_SHOW;
+        shExecInfo.nShow = SW_HIDE;
 		shExecInfo.hInstApp = nullptr;
 
 		const bool result = ShellExecuteExA(&shExecInfo);
 
 		WaitForSingleObject(shExecInfo.hProcess, INFINITE);
 		CloseHandle(shExecInfo.hProcess);
-
-
 
 		return result;
 	}
