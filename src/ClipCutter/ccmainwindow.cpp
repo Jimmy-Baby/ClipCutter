@@ -34,6 +34,7 @@ CClipCutterWindow::CClipCutterWindow(QWidget *parent)
     connect(ui->clipsTree, &QTreeWidget::currentItemChanged, this, &CClipCutterWindow::OnVideoListItemChanged);
     connect(ui->clipNameEdit, &QLineEdit::textChanged, this, &CClipCutterWindow::OnVideoNameChanged);
     connect(ui->processButton, &QPushButton::pressed, this, &CClipCutterWindow::ProcessClips);
+    connect(ui->skipAllButton, &QPushButton::pressed, this, &CClipCutterWindow::MarkAllAsSkipped);
 
     // Setup media player
     videoWidget = new QVideoWidget(ui->playerBox);
@@ -415,7 +416,14 @@ void CClipCutterWindow::ProcessClips()
         return;
     }
 
+    if (videoList.empty())
+    {
+        QMessageBox::information(nullptr, "ClipCutter", "No clips to process!");
+        return;
+    }
+
     DisableActions();
+    player->pause();
 
     for (int index = 0; index < videoList.size(); ++index)
     {
@@ -436,5 +444,16 @@ void CClipCutterWindow::ProcessClips()
 
     ui->progressBar->setValue(100);
 
+    QMessageBox::information(nullptr, "ClipCutter", "Done!");
     EnableActions();
+}
+
+void CClipCutterWindow::MarkAllAsSkipped()
+{
+    for (auto it = videoList.begin(); it != videoList.end(); ++it)
+    {
+        QueueItem* item = it->get();
+        item->TreeItem->setCheckState(0, Qt::CheckState::Checked);
+        item->Skip = true;
+    }
 }

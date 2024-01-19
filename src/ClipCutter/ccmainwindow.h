@@ -46,6 +46,7 @@ private:
     void DisableActions();
     void EnableActions();
     void ProcessClips();
+    void MarkAllAsSkipped();
 
     // UI
     Ui::ClipCutterWindow* ui;

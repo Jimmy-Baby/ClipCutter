@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QProcess>
 #include <QMessageBox>
+#include <QApplication>
 
 #include "ffmpeg.h"
 
@@ -11,6 +12,7 @@ namespace FFmpeg
 {
 	bool ExecuteFFmpeg(const QString& args)
 	{
+        const QByteArray ffmpegPath = (QCoreApplication::applicationDirPath() + "/ffmpeg").toLatin1();
         const QByteArray argsAsByteArray = args.toLatin1();
 
 		SHELLEXECUTEINFOA shExecInfo = { 0 };
@@ -18,7 +20,7 @@ namespace FFmpeg
 		shExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
 		shExecInfo.hwnd = nullptr;
 		shExecInfo.lpVerb = nullptr;
-		shExecInfo.lpFile = "ffmpeg";
+        shExecInfo.lpFile = ffmpegPath.data();
         shExecInfo.lpParameters = argsAsByteArray.data();
 		shExecInfo.lpDirectory = nullptr;
         shExecInfo.nShow = SW_HIDE;
