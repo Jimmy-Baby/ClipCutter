@@ -27,16 +27,16 @@ Extract the files into the folder of your choosing, this is where ClipCutter wil
 Right click ClipCutter.exe -> Send to... -> Desktop (Create Shortcut) to create a shortcut on your Desktop.
 
 ### Run
-Run ClipCutter.exe to get started.
+Open ClipCutter either from the shortcut or directly from the folder!
 
 ## Usage
 
 Here's how you can use it:
 
-1. **Import Clips:** Open a local folder containing the clips you want to sort through.
-2. **Trim and Cut:** Set the start/end points for each clip to reduce their length.
+1. **Import Clips:** Open the clips you want to cut using any of the options shown in the 'File' menu.
+2. **Trim and Cut:** Set the start/end points for each clip to reduce their length. Optionally, you can rename them and even create common keywords using the keywords manager to add prefixes to clips!
 3. **Cull Unwanted Clips:** Identify and remove clips you no longer need by checking the 'Skip?' checkbox next to them in the video list.
-4. **Enjoy Optimized Storage:** Click the 'Process Clips' button and find your processed clips in the ClipCutterOutput found in the original clip directory.
+4. **Enjoy Optimized Storage:** Choose your output settings using the dropdowns, and then click the 'Process Clips' button. You can find your processed clips in the ClipCutterOutput found in the original clip directory.
 
 ## Contributing
 
