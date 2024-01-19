@@ -7,6 +7,7 @@
 #include <QRandomGenerator>
 #include <QTreeWidgetItem>
 #include <QVector>
+#include <qt_windows.h>
 
 #include "ccmainwindow.h"
 #include "ui_ccmainwindow.h"
@@ -22,7 +23,9 @@ CClipCutterWindow::CClipCutterWindow(QWidget *parent)
     pauseIcon = new QIcon(":/icons/icons/pause-solid.svg");
 
     // Connect qt actions
-    connect(ui->actionOpen, &QAction::triggered, this, &CClipCutterWindow::ActionOpenTriggered);
+    connect(ui->actionOpenFolder, &QAction::triggered, this, &CClipCutterWindow::ActionOpenFolderTriggered);
+    connect(ui->actionOpenFile, &QAction::triggered, this, &CClipCutterWindow::ActionOpenFileTriggered);
+    connect(ui->actionOpenFiles, &QAction::triggered, this, &CClipCutterWindow::ActionOpenFilesTriggered);
     connect(ui->actionPlayPause, &QAction::triggered, this, &CClipCutterWindow::ActionPlayPauseTriggered);
     connect(ui->actionNext, &QAction::triggered, this, &CClipCutterWindow::ActionNextTriggered);
     connect(ui->actionSkip, &QAction::triggered, this, &CClipCutterWindow::ActionSkipTriggered);
@@ -30,11 +33,19 @@ CClipCutterWindow::CClipCutterWindow(QWidget *parent)
     connect(ui->actionStop, &QAction::triggered, this, &CClipCutterWindow::ActionStopTriggered);
     connect(ui->actionSetStart, &QAction::triggered, this, &CClipCutterWindow::ActionSetStartTriggered);
     connect(ui->actionSetEnd, &QAction::triggered, this, &CClipCutterWindow::ActionSetEndTriggered);
+    connect(ui->actionProcessClips, &QAction::triggered, this, &CClipCutterWindow::ProcessClips);
 
     connect(ui->clipsTree, &QTreeWidget::currentItemChanged, this, &CClipCutterWindow::OnVideoListItemChanged);
     connect(ui->clipNameEdit, &QLineEdit::textChanged, this, &CClipCutterWindow::OnVideoNameChanged);
     connect(ui->processButton, &QPushButton::pressed, this, &CClipCutterWindow::ProcessClips);
     connect(ui->skipAllButton, &QPushButton::pressed, this, &CClipCutterWindow::MarkAllAsSkipped);
+    connect(ui->checkboxCopyMetadata, &QCheckBox::stateChanged, this, &CClipCutterWindow::OnCopyMetadataChanged);
+    connect(ui->checkboxShowFfmpeg, &QCheckBox::stateChanged, this, &CClipCutterWindow::OnShowFfmpegChanged);
+
+    connect(ui->buttonAddKeyword, &QPushButton::pressed, this, &CClipCutterWindow::AddKeyword);
+    connect(ui->buttonRemoveSelected, &QPushButton::pressed, this, &CClipCutterWindow::RemoveKeyword);
+    connect(ui->buttonUseSelected, &QPushButton::pressed, this, &CClipCutterWindow::UseKeyword);
+    connect(ui->keywordsTree, &QTreeWidget::currentItemChanged, this, &CClipCutterWindow::OnKeywordChanged);
 
     // Setup media player
     videoWidget = new QVideoWidget(ui->playerBox);
@@ -64,6 +75,13 @@ CClipCutterWindow::CClipCutterWindow(QWidget *parent)
     qualityItems << "Medium";
     qualityItems << "High";
     ui->qualityCombo->addItems(qualityItems);
+
+    // Setup encoding speed dropdown
+    QStringList encodingSpeedItems;
+    encodingSpeedItems << "Fast";
+    encodingSpeedItems << "Medium";
+    encodingSpeedItems << "Slow";
+    ui->presetCombo->addItems(encodingSpeedItems);
 }
 
 
@@ -73,7 +91,7 @@ CClipCutterWindow::~CClipCutterWindow()
 }
 
 
-void CClipCutterWindow::ActionOpenTriggered()
+void CClipCutterWindow::ActionOpenFolderTriggered()
 {
     // Make sure the player is paused
     ui->actionPlayPause->setIcon(*playIcon);
@@ -144,6 +162,130 @@ void CClipCutterWindow::ActionOpenTriggered()
 
     // Store output directory
     outputDirectory = outDir.path() + QDir::separator() + "ClipCutterOutput";
+
+    // Open first video in list
+    OpenVideo(0);
+}
+
+void CClipCutterWindow::ActionOpenFileTriggered()
+{
+    // Make sure the player is paused
+    ui->actionPlayPause->setIcon(*playIcon);
+    player->pause();
+
+    // Folder Selection
+    const QString fileFilter = tr("Video Files (*.mp4 *.mkv *.avi *.mov)");
+    const QString filePathString = QFileDialog::getOpenFileName(this, tr("Open File"), "/home", fileFilter);
+    const QFileInfo fileInfo(filePathString);
+
+    // Check if get directory failed
+    if (filePathString.isEmpty() || !fileInfo.exists())
+    {
+        return;
+    }
+
+    // Make sure player is stopped and cleared first
+    player->stop();
+
+    // Set video directory
+    videoDirectory = fileInfo.dir();
+
+    // Clear lists incase previous items exist
+    videoList.clear();
+    ui->clipsTree->clear();
+
+    // Setup tree list item
+    QTreeWidgetItem* treeItem = new QTreeWidgetItem(ui->clipsTree);
+    treeItem->setCheckState(0, Qt::CheckState::Unchecked);
+    treeItem->setText(1, fileInfo.fileName());
+
+    // Create queue item
+    QueueItem* newItem = new QueueItem;
+    newItem->ListIndex = 0;
+    newItem->TreeItem = treeItem;
+    newItem->VideoName = fileInfo.fileName();
+    newItem->OriginalPath = fileInfo.absoluteFilePath();
+    newItem->EndTimeMs = Utility::GetVideoLength(newItem->OriginalPath);
+
+    // Add queue item to list
+    videoList.push_back(std::unique_ptr<QueueItem>(newItem));
+
+    // Connect signal for 'Skip?' checkbox, do this with item that was added to list
+    connect(ui->clipsTree, &QTreeWidget::itemChanged, newItem, &QueueItem::UpdateSkip);
+
+    // Create output folder
+    if (!videoDirectory.exists("ClipCutterOutput"))
+    {
+        [[maybe_unused]] bool directoryMade = videoDirectory.mkdir("ClipCutterOutput");
+    }
+
+    // Store output directory
+    outputDirectory = videoDirectory.path() + QDir::separator() + "ClipCutterOutput";
+
+    // Open first video in list
+    OpenVideo(0);
+}
+
+void CClipCutterWindow::ActionOpenFilesTriggered()
+{
+    // Make sure the player is paused
+    ui->actionPlayPause->setIcon(*playIcon);
+    player->pause();
+
+    // Folder Selection
+    const QString fileFilter = tr("Video Files (*.mp4 *.mkv *.avi *.mov)");
+    const QStringList filePaths = QFileDialog::getOpenFileNames(this, tr("Open File"), "/home", fileFilter);
+    const QFileInfo firstFileInfo(filePaths[0]);
+
+    // Check if get directory failed
+    if (filePaths.isEmpty() || !firstFileInfo.exists())
+    {
+        return;
+    }
+
+    // Make sure player is stopped and cleared first
+    player->stop();
+
+    // Set video directory
+    videoDirectory = firstFileInfo.dir();
+
+    // Clear lists incase previous items exist
+    videoList.clear();
+    ui->clipsTree->clear();
+
+    // Create video list from file list
+    for (int index = 0; index < filePaths.length(); ++index)
+    {
+        const QFileInfo fileInfo(filePaths[index]);
+
+        // Setup tree list item
+        QTreeWidgetItem* treeItem = new QTreeWidgetItem(ui->clipsTree);
+        treeItem->setCheckState(0, Qt::CheckState::Unchecked);
+        treeItem->setText(1, fileInfo.fileName());
+
+        // Create queue item
+        QueueItem* newItem = new QueueItem;
+        newItem->ListIndex = index;
+        newItem->TreeItem = treeItem;
+        newItem->VideoName = fileInfo.fileName();
+        newItem->OriginalPath = fileInfo.absoluteFilePath();
+        newItem->EndTimeMs = Utility::GetVideoLength(newItem->OriginalPath);
+
+        // Add queue item to list
+        videoList.push_back(std::unique_ptr<QueueItem>(newItem));
+
+        // Connect signal for 'Skip?' checkbox, do this with item that was added to list
+        connect(ui->clipsTree, &QTreeWidget::itemChanged, newItem, &QueueItem::UpdateSkip);
+    }
+
+    // Create output folder
+    if (!videoDirectory.exists("ClipCutterOutput"))
+    {
+        [[maybe_unused]] bool directoryMade = videoDirectory.mkdir("ClipCutterOutput");
+    }
+
+    // Store output directory
+    outputDirectory = videoDirectory.path() + QDir::separator() + "ClipCutterOutput";
 
     // Open first video in list
     OpenVideo(0);
@@ -277,6 +419,7 @@ void CClipCutterWindow::OnVolumeChanged(int volume)
 {
     float volumeAsFloat = static_cast<float>(volume) / 100.0f;
     audioOutput->setVolume(volumeAsFloat);
+    userSettings.preferredVolume = volumeAsFloat;
 }
 
 
@@ -321,7 +464,27 @@ void CClipCutterWindow::OnVideoNameChanged(QString newName)
 
     QString newNameWithExtension = newName + ".mp4";
     currentVideo->VideoName = newNameWithExtension;
-    currentVideo->TreeItem->setText(1, newNameWithExtension);
+    currentVideo->TreeItem->setText(1, currentVideo->GetOutputName());
+}
+
+void CClipCutterWindow::OnCopyMetadataChanged(int value)
+{
+    userSettings.copyDateTime = value;
+}
+
+void CClipCutterWindow::OnShowFfmpegChanged(int value)
+{
+    userSettings.showFfmpeg = value;
+}
+
+void CClipCutterWindow::OnKeywordChanged(QTreeWidgetItem *curr, QTreeWidgetItem *prev)
+{
+	if (currentVideo == nullptr || curr == nullptr)
+    {
+        return;
+    }
+
+    currentVideo->keyword = curr->text(0);
 }
 
 
@@ -384,7 +547,7 @@ void CClipCutterWindow::OpenVideo(qint64 videoIndex)
 
 void CClipCutterWindow::DisableActions()
 {
-    ui->actionOpen->setDisabled(true);
+    ui->actionOpenFolder->setDisabled(true);
     ui->actionPlayPause->setDisabled(true);
     ui->actionNext->setDisabled(true);
     ui->actionSkip->setDisabled(true);
@@ -397,7 +560,7 @@ void CClipCutterWindow::DisableActions()
 
 void CClipCutterWindow::EnableActions()
 {
-    ui->actionOpen->setDisabled(false);
+    ui->actionOpenFolder->setDisabled(false);
     ui->actionPlayPause->setDisabled(false);
     ui->actionNext->setDisabled(false);
     ui->actionSkip->setDisabled(false);
@@ -423,7 +586,8 @@ void CClipCutterWindow::ProcessClips()
     }
 
     DisableActions();
-    player->pause();
+    player->stop();
+    player->setSource(QUrl());
 
     for (int index = 0; index < videoList.size(); ++index)
     {
@@ -439,7 +603,55 @@ void CClipCutterWindow::ProcessClips()
         }
 
         EReEncodeQuality quality = static_cast<EReEncodeQuality>(ui->qualityCombo->currentIndex());
-        FFmpeg::ProcessQueueItem(queueItem, outputDirectory, quality);
+        EReEncodeSpeed preset = static_cast<EReEncodeSpeed>(ui->presetCombo->currentIndex());
+        FFmpeg::ProcessQueueItem(queueItem, outputDirectory, quality, preset, userSettings.showFfmpeg);
+
+        if (userSettings.copyDateTime)
+        {
+            FILETIME creationTime, accessedTime, modifiedTime;
+
+            // Get original times
+            HANDLE hOriginalFile;
+            QByteArray originalFilePathArr = queueItem->OriginalPath.toLatin1();
+            LPCSTR originalFilePath = originalFilePathArr.data();
+            hOriginalFile = CreateFileA(originalFilePath, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+            if (hOriginalFile == INVALID_HANDLE_VALUE)
+            {
+                QMessageBox::information(this, "ClipCutter", "Unable to open original file for metadata");
+                QString umm = QString("%1").arg(GetLastError());
+                QMessageBox::information(this, "ClipCutter", umm);
+            }
+            else
+            {
+                if(!GetFileTime(hOriginalFile, &creationTime, &accessedTime, &modifiedTime))
+                {
+                    QMessageBox::information(this, "ClipCutter", "Unable to get date and time");
+                }
+            }
+
+            CloseHandle(hOriginalFile);
+
+            // Set new times
+            HANDLE hNewFile;
+            QByteArray newFilePathArr = (outputDirectory + "\\" + queueItem->GetOutputName()).toLatin1();
+            LPCSTR newFilePath = newFilePathArr.data();
+            hNewFile = CreateFileA(newFilePath, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+            if (hNewFile == INVALID_HANDLE_VALUE)
+            {
+                QMessageBox::information(this, "ClipCutter", "Unable to open new file for metadata");
+            }
+            else
+            {
+                if(!SetFileTime(hNewFile, &creationTime, &accessedTime, &modifiedTime))
+                {
+                    QMessageBox::information(this, "ClipCutter", "Unable to set date and time");
+                }
+            }
+
+            CloseHandle(hNewFile);
+        }
     }
 
     ui->progressBar->setValue(100);
@@ -457,3 +669,96 @@ void CClipCutterWindow::MarkAllAsSkipped()
         item->Skip = true;
     }
 }
+
+void CClipCutterWindow::AddKeyword()
+{
+    QString keyword = ui->keywordEdit->text();
+
+    // Setup tree list item
+    QTreeWidgetItem* treeItem = new QTreeWidgetItem(ui->keywordsTree);
+    treeItem->setText(1, keyword);
+}
+
+void CClipCutterWindow::RemoveKeyword()
+{
+    QList<QTreeWidgetItem*> treeItemsToRemove = ui->keywordsTree->selectedItems();
+
+    for (auto item : treeItemsToRemove)
+    {
+        for (auto it = videoList.begin(); it != videoList.end(); ++it)
+        {
+            QueueItem* video = it->get();
+
+            if (video->keyword == item->text(1))
+            {
+                video->keyword = "";
+                video->TreeItem->setText(1, currentVideo->GetOutputName());
+            }
+        }
+
+        delete item;
+    }
+}
+
+void CClipCutterWindow::UseKeyword()
+{
+    if (currentVideo == nullptr)
+    {
+        return;
+    }
+
+    QList<QTreeWidgetItem*> selectedItems = ui->keywordsTree->selectedItems();
+
+    if (selectedItems.empty())
+    {
+        return;
+    }
+
+    QTreeWidgetItem* keywordItem = selectedItems[0];
+    QString keywordText = keywordItem->text(1);
+
+    // If they match then we remove keyword entirely
+    if (keywordText == currentVideo->keyword)
+    {
+        keywordItem->setText(0, "");
+        currentVideo->keyword = "";
+        currentVideo->TreeItem->setText(1, currentVideo->GetOutputName());
+        return;
+    }
+
+    keywordItem->setText(0, "Yes");
+    currentVideo->keyword = keywordText;
+    currentVideo->TreeItem->setText(1, currentVideo->GetOutputName());
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

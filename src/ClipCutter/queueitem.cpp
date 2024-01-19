@@ -3,6 +3,18 @@
 
 #include "queueitem.h"
 
+QString QueueItem::GetOutputName() const
+{
+    if (keyword == "")
+    {
+        return VideoName;
+    }
+    else
+    {
+        return keyword + "_" + VideoName;
+    }
+}
+
 void QueueItem::UpdateSkip(QTreeWidgetItem* item, int column)
 {
     if (item == TreeItem && column == 0)

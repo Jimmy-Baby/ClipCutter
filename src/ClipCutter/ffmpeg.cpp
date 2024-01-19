@@ -10,7 +10,7 @@
 
 namespace FFmpeg
 {
-	bool ExecuteFFmpeg(const QString& args)
+    bool ExecuteFFmpeg(const QString& args, bool showFfmpeg)
 	{
         const QByteArray ffmpegPath = (QCoreApplication::applicationDirPath() + "/ffmpeg").toLatin1();
         const QByteArray argsAsByteArray = args.toLatin1();
@@ -22,9 +22,17 @@ namespace FFmpeg
 		shExecInfo.lpVerb = nullptr;
         shExecInfo.lpFile = ffmpegPath.data();
         shExecInfo.lpParameters = argsAsByteArray.data();
-		shExecInfo.lpDirectory = nullptr;
-        shExecInfo.nShow = SW_HIDE;
+        shExecInfo.lpDirectory = nullptr;
 		shExecInfo.hInstApp = nullptr;
+
+        if (showFfmpeg)
+        {
+            shExecInfo.nShow = SW_SHOW;
+        }
+        else
+        {
+            shExecInfo.nShow = SW_HIDE;
+        }
 
 		const bool result = ShellExecuteExA(&shExecInfo);
 
@@ -34,7 +42,7 @@ namespace FFmpeg
 		return result;
 	}
 
-    QString ConstructCmdArgs(const QueueItem* item, const QString& outputDirectory, EReEncodeQuality quality)
+    QString ConstructCmdArgs(const QueueItem* item, const QString& outputDirectory, EReEncodeQuality quality, EReEncodeSpeed speed)
 	{
 		QString arguments;
 
@@ -51,7 +59,24 @@ namespace FFmpeg
 		arguments += QString(" -to %1ms").arg(item->EndTimeMs);
 
 		// Construct output path
-		const QString outputPath = QDir::toNativeSeparators(outputDirectory + QDir::separator() + item->VideoName);
+        const QString outputPath = QDir::toNativeSeparators(outputDirectory + QDir::separator() + item->GetOutputName());
+
+        // Create encoding preset string
+        QString preset;
+        switch (speed)
+        {
+        case ENCODE_FAST:
+            preset = "fast";
+            break;
+
+        case ENCODE_MEDIUM:
+            preset = "medium";
+            break;
+
+        case ENCODE_SLOW:
+            preset = "slow";
+            break;
+        }
 
         // Tells ffmpeg the encoding settings and output directory
         switch (quality)
@@ -61,29 +86,29 @@ namespace FFmpeg
             break;
 
         case QUALITY_LOW:
-            arguments += QString(" -c:v libx264 -crf 27 -preset fast -c:a copy \"%1\"").arg(outputPath);
+            arguments += QString(" -c:v libx264 -crf 28 -preset %1 -c:a copy \"%2\"").arg(preset, outputPath);
             break;
 
         case QUALITY_MEDIUM:
-            arguments += QString(" -c:v libx264 -crf 24 -preset fast -c:a copy \"%1\"").arg(outputPath);
+            arguments += QString(" -c:v libx264 -crf 23 -preset %1 -c:a copy \"%2\"").arg(preset, outputPath);
             break;
 
         case QUALITY_HIGH:
-            arguments += QString(" -c:v libx264 -crf 21 -preset fast -c:a copy \"%1\"").arg(outputPath);
+            arguments += QString(" -c:v libx264 -crf 18 -preset %1 -c:a copy \"%2\"").arg(preset, outputPath);
             break;
         }
 
 		return arguments;
 	}
 
-    void ProcessQueueItem(const QueueItem* item, const QString& outputDirectory, EReEncodeQuality quality)
+    void ProcessQueueItem(const QueueItem* item, const QString& outputDirectory, EReEncodeQuality quality, EReEncodeSpeed speed, bool showFfmpeg)
 	{
-        const QString arguments = ConstructCmdArgs(item, outputDirectory, quality);
-		ExecuteFFmpeg(arguments);
+        const QString arguments = ConstructCmdArgs(item, outputDirectory, quality, speed);
+        ExecuteFFmpeg(arguments, showFfmpeg);
 	}
 
     bool FFmpegTest()
     {
-        return ExecuteFFmpeg("");
+        return ExecuteFFmpeg("", false);
     }
 }
