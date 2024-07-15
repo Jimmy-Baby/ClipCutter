@@ -42,6 +42,9 @@
 
 #Various directories
 /src-old/.vs
+/src/ClipCutter/release
+/src/ClipCutter/debug
 /bin
 src/ClipCutter/ClipCutter.pro.user
 *.user
+src/ClipCutter/.qmake.stash

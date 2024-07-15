@@ -8,16 +8,11 @@ class QTreeWidgetItem;
 enum EReEncodeQuality
 {
     QUALITY_COPY,
+    QUALITY_LOWEST,
     QUALITY_LOW,
     QUALITY_MEDIUM,
-    QUALITY_HIGH
-};
-
-enum EReEncodeSpeed
-{
-    ENCODE_FAST,
-    ENCODE_MEDIUM,
-    ENCODE_SLOW
+    QUALITY_HIGH,
+    QUALITY_HIGHEST
 };
 
 struct QueueItem : public QObject

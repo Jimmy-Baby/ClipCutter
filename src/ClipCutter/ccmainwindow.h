@@ -26,8 +26,7 @@ public:
 
 private:
     void ActionOpenFolderTriggered();
-    void ActionOpenFileTriggered();
-    void ActionOpenFilesTriggered( );
+    void ActionOpenFilesTriggered();
     void ActionPlayPauseTriggered();
     void ActionNextTriggered();
     void ActionSkipTriggered();

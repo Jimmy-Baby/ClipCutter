@@ -11,7 +11,7 @@ QString QueueItem::GetOutputName() const
     }
     else
     {
-        return keyword + "_" + VideoName;
+        return keyword + VideoName;
     }
 }
 
