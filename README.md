@@ -9,7 +9,7 @@ ClipCutter is software that aims to simplify the management of video game clips.
 
 ## What's New in v2
 
-In the newest release, ClipCutter has been completely reimagined and rebuilt from the ground up. I've focused on enhancing both functionality and user experience, making it easier and more enjoyable to use:
+In the newest release, ClipCutter has been rebuilt from the ground up. I've focused on enhancing both functionality and user experience, making it easier and more enjoyable to use:
 
 ### New User Interface
 
@@ -37,11 +37,11 @@ Here's how you can use it:
 1. **Import Clips:** Open the clips you want to cut using any of the options shown in the 'File' menu.
 2. **Trim and Cut:** Set the start/end points for each clip to reduce their length. Optionally, you can rename them and even create common keywords using the keywords manager to add prefixes to clips!
 3. **Cull Unwanted Clips:** Identify and remove clips you no longer need by checking the 'Skip?' checkbox next to them in the video list.
-4. **Enjoy Optimized Storage:** Choose your output settings using the dropdowns, and then click the 'Process Clips' button. You can find your processed clips in the ClipCutterOutput found in the original clip directory.
+4. **Enjoy Optimised Storage:** Choose your output settings using the dropdowns, and then click the 'Process Clips' button. You can find your processed clips in the ClipCutterOutput found in the original clip directory.
 
 ## Contributing
 
-I welcome contributions from the community to make ClipCutter even better. Create a pull request to get involved.
+Contributions from the community are welcome. Create a pull request to get involved.
 
 ## License
 
@@ -49,10 +49,8 @@ ClipCutter is open-source software licensed under the MIT License. See the [LICE
 
 ## Roadmap
 
-Here are some of the features I plan to implement in future releases:
-
 - I'm thinking...
 
 ## Support
 
-For support or bug reports, please visit the [Issue Tracker](https://github.com/Jimmy-Baby/Mass-Clip-Cutter/issues).
+[Issue Tracker](https://github.com/Jimmy-Baby/Mass-Clip-Cutter/issues).
