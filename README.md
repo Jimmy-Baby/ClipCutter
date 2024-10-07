@@ -1,6 +1,7 @@
 # ClipCutter
-
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Jimmy-Baby/Mass-Clip-Cutter/blob/master/LICENSE)
+
+![image](https://github.com/user-attachments/assets/108e997f-cf9e-4fe6-a518-30d14dbcb2ae)
 
 ## Description
 
