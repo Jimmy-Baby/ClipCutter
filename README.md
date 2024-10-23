@@ -20,7 +20,7 @@ I've streamlined the design to provide an intuitive and user-friendly experience
 Installing ClipCutter is a breeze. Follow these steps to get started:
 
 ### Download
-Download the latest [release](https://github.com/Jimmy-Baby/ClipCutter/releases/download/v2.1.0/ClipCutter.v2.1.0.zip)
+Download the latest [release](https://github.com/Jimmy-Baby/ClipCutter/releases/download/v2.1.1/ClipCutter.v2.1.1.zip)
 
 ### Extract
 Extract the files into the folder of your choosing, this is where ClipCutter will live.
