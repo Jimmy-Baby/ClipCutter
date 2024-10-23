@@ -40,7 +40,7 @@ CClipCutterWindow::CClipCutterWindow(QWidget *parent)
     connect(ui->skipAllButton, &QPushButton::pressed, this, &CClipCutterWindow::MarkAllAsSkipped);
     ui->checkboxCopyMetadata->setCheckState(Qt::CheckState::Checked);
     connect(ui->checkboxCopyMetadata, &QCheckBox::stateChanged, this, &CClipCutterWindow::OnCopyMetadataChanged);
-    connect(ui->checkboxShowFfmpeg, &QCheckBox::stateChanged, this, &CClipCutterWindow::OnShowFfmpegChanged);
+    // connect(ui->checkboxShowFfmpeg, &QCheckBox::stateChanged, this, &CClipCutterWindow::OnShowFfmpegChanged);
 
     connect(ui->buttonAddKeyword, &QPushButton::pressed, this, &CClipCutterWindow::AddKeyword);
     connect(ui->buttonRemoveSelected, &QPushButton::pressed, this, &CClipCutterWindow::RemoveKeyword);

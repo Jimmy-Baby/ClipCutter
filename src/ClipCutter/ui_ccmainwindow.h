@@ -72,7 +72,6 @@ public:
     QLabel *qualityLabel;
     QComboBox *qualityCombo;
     QCheckBox *checkboxCopyMetadata;
-    QCheckBox *checkboxShowFfmpeg;
     QSpacerItem *horizontalSpacer;
     QProgressBar *progressBar;
     QGroupBox *volumeBox;
@@ -287,12 +286,6 @@ public:
 
         horizontalLayout->addWidget(checkboxCopyMetadata);
 
-        checkboxShowFfmpeg = new QCheckBox(processButtonBox);
-        checkboxShowFfmpeg->setObjectName("checkboxShowFfmpeg");
-        checkboxShowFfmpeg->setMaximumSize(QSize(145, 16777215));
-
-        horizontalLayout->addWidget(checkboxShowFfmpeg);
-
         horizontalSpacer = new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum);
 
         horizontalLayout->addItem(horizontalSpacer);
@@ -503,7 +496,7 @@ public:
         processButton->setText(QCoreApplication::translate("ClipCutterWindow", "Process Clips", nullptr));
         qualityLabel->setText(QCoreApplication::translate("ClipCutterWindow", "Quality Preset:", nullptr));
 #if QT_CONFIG(tooltip)
-        qualityCombo->setToolTip(QCoreApplication::translate("ClipCutterWindow", "<html><head/><body><p><span style=\" font-weight:700;\">Copy</span> - Very fast, and maintains original quality. Copies all video and audio data directly, may result in out-of-sync video/audio in some cases.<br/><br/><span style=\" font-weight:700;\">Lowest</span> - Lowest quality re-encoding (CRF 35).<br/><br/><span style=\" font-weight:700;\">Low</span> - Low quality re-encoding (CRF 30).<br/><br/><span style=\" font-weight:700;\">Medium</span> - Medium quality re-encoding (CRF 25).<br/><br/><span style=\" font-weight:700;\">High</span> - High quality re-encoding (CRF 20).<br/><br/><span style=\" font-weight:700;\">Best</span> - Highest quality re-encoding (CRF 15).</p></body></html>", nullptr));
+        qualityCombo->setToolTip(QCoreApplication::translate("ClipCutterWindow", "<html><head/><body><p><span style=\" font-weight:700;\">Copy</span> - Very fast, and maintains original quality. Copies all video and audio data directly, may result in out-of-sync video/audio in some cases.<br/><br/><span style=\" font-weight:700;\">Lowest</span> - Quickest processing, worse looking video, and possibly larger file size.<br/><br/><span style=\" font-weight:700;\">Low, Medium, High </span>- Self explanatory in-betweens.<br/><br/><span style=\" font-weight:700;\">Best</span> - Slowest processing, better looking video, and possibly smaller file size.</p></body></html>", nullptr));
 #endif // QT_CONFIG(tooltip)
 #if QT_CONFIG(statustip)
         qualityCombo->setStatusTip(QString());
@@ -514,7 +507,6 @@ public:
         checkboxCopyMetadata->setToolTip(QCoreApplication::translate("ClipCutterWindow", "If enabled, ClipCutter will copy the date/time information from the source videos onto the trimmed videos", nullptr));
 #endif // QT_CONFIG(tooltip)
         checkboxCopyMetadata->setText(QCoreApplication::translate("ClipCutterWindow", "Copy Date/Time", nullptr));
-        checkboxShowFfmpeg->setText(QCoreApplication::translate("ClipCutterWindow", "Show FFmpeg Window", nullptr));
         volumeBox->setTitle(QCoreApplication::translate("ClipCutterWindow", "Controls", nullptr));
         volumeLabel->setText(QCoreApplication::translate("ClipCutterWindow", "Volume:", nullptr));
 #if QT_CONFIG(accessibility)

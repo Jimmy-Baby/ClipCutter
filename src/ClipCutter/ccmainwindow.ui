@@ -270,7 +270,7 @@
           </size>
          </property>
          <property name="toolTip">
-          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Copy&lt;/span&gt; - Very fast, and maintains original quality. Copies all video and audio data directly, may result in out-of-sync video/audio in some cases.&lt;br/&gt;&lt;br/&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Lowest&lt;/span&gt; - Lowest quality re-encoding (CRF 35).&lt;br/&gt;&lt;br/&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Low&lt;/span&gt; - Low quality re-encoding (CRF 30).&lt;br/&gt;&lt;br/&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Medium&lt;/span&gt; - Medium quality re-encoding (CRF 25).&lt;br/&gt;&lt;br/&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;High&lt;/span&gt; - High quality re-encoding (CRF 20).&lt;br/&gt;&lt;br/&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Best&lt;/span&gt; - Highest quality re-encoding (CRF 15).&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Copy&lt;/span&gt; - Very fast, and maintains original quality. Copies all video and audio data directly, may result in out-of-sync video/audio in some cases.&lt;br/&gt;&lt;br/&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Lowest&lt;/span&gt; - Quickest processing, worse looking video, and possibly larger file size.&lt;br/&gt;&lt;br/&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Low, Medium, High &lt;/span&gt;- Self explanatory in-betweens.&lt;br/&gt;&lt;br/&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Best&lt;/span&gt; - Slowest processing, better looking video, and possibly smaller file size.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
          </property>
          <property name="statusTip">
           <string/>
@@ -302,19 +302,6 @@
          </property>
          <property name="text">
           <string>Copy Date/Time</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="checkboxShowFfmpeg">
-         <property name="maximumSize">
-          <size>
-           <width>145</width>
-           <height>16777215</height>
-          </size>
-         </property>
-         <property name="text">
-          <string>Show FFmpeg Window</string>
          </property>
         </widget>
        </item>
