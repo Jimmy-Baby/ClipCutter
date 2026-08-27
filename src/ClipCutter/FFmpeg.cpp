@@ -1,7 +1,8 @@
 #include <Windows.h>
+#include <shellapi.h>
 
+#include <QCoreApplication>
 #include <QDir>
-#include <QApplication>
 
 #include "FFmpeg.h"
 

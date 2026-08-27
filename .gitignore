@@ -1,50 +1,70 @@
-# Prerequisites
-*.d
+# Build trees and generated CMake files
+/build/
+/build-*/
+/cmake-build-*/
+/bin/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+install_manifest.txt
+*.ninja
+.ninja_*
 
-# Compiled Object files
+# Qt generated files and IDE state
+.qmake.stash
+.qtc_clangd/
+*.pro.user*
+CMakeLists.txt.user*
+ui_*.h
+moc_*.cpp
+moc_*.h
+moc_predefs.h
+qrc_*.cpp
+
+# Visual Studio and other IDE state
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+out/
+
+# Compiler and linker output
+*.d
 *.slo
 *.lo
 *.o
 *.obj
-
-# Precompiled Headers
 *.gch
 *.pch
-
-# Compiled Dynamic libraries
 *.so
 *.dylib
 *.dll
-
-# Various types
+*.lib
+*.exp
 *.exe
 *.out
 *.app
 *.ipch
-*.db-wal
-*.db-shm
-*.db
-*.opendb
 *.tlog
 *.pdb
 *.recipe
 *.iobj
-*.log
 *.ipdb
 *.idb
 *.ilk
-*.idb
 *.enc
 *.res
 *.vsidx
 *.lock
-
-
-#Various directories
-/src-old/.vs
-/src/ClipCutter/release
-/src/ClipCutter/debug
-/bin
-src/ClipCutter/ClipCutter.pro.user
-*.user
-src/ClipCutter/.qmake.stash
+*.log
