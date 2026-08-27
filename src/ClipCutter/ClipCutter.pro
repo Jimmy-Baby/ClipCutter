@@ -9,20 +9,22 @@ CONFIG += c++17
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
 SOURCES += \
-    ffmpeg.cpp \
-    main.cpp \
-    ccmainwindow.cpp \
-    queueitem.cpp \
-    utility.cpp
+    ClipLogic.cpp \
+    FFmpeg.cpp \
+    Main.cpp \
+    CCMainWindow.cpp \
+    QueueItem.cpp \
+    Utility.cpp
 
 HEADERS += \
-    ccmainwindow.h \
-    ffmpeg.h \
-    queueitem.h \
-    utility.h
+    CCMainWindow.h \
+    ClipLogic.h \
+    FFmpeg.h \
+    QueueItem.h \
+    Utility.h
 
 FORMS += \
-    ccmainwindow.ui
+    CCMainWindow.ui
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin
@@ -32,4 +34,4 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 RESOURCES += \
     ClipCutterResources.qrc
 
-UI_DIR = $$PWD
+UI_DIR = $$OUT_PWD/Generated

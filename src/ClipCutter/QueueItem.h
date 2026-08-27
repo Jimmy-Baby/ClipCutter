@@ -2,6 +2,7 @@
 #define QUEUEITEM_H
 
 #include <QObject>
+#include <QString>
 
 class QTreeWidgetItem;
 
@@ -17,7 +18,7 @@ enum EReEncodeQuality
 
 struct QueueItem : public QObject
 {
-    quint64 ListIndex;
+    int ListIndex = -1;
     QTreeWidgetItem* TreeItem = nullptr;
     bool HasBeenOpened = false;
     bool Skip = false;

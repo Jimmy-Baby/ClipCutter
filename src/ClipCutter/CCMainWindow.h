@@ -1,10 +1,15 @@
 #ifndef CCMAINWINDOW_H
 #define CCMAINWINDOW_H
 
-#include <QMainWindow>
 #include <QDir>
+#include <QIcon>
+#include <QMainWindow>
+#include <QStringList>
 
-#include "queueitem.h"
+#include <memory>
+#include <vector>
+
+#include "QueueItem.h"
 
 class QTreeWidgetItem;
 class QMediaPlayer;
@@ -39,14 +44,17 @@ private:
     void OnPlayerDurationChanged(qint64 duration);
     void OnPlayerPositionChanged(qint64 position);
     void OnVideoListItemChanged(QTreeWidgetItem* curr, QTreeWidgetItem* prev);
-    void OnVideoNameChanged(QString newName);
-    void OnCopyMetadataChanged(int value);
-    void OnShowFfmpegChanged(int value);
+    void OnVideoNameChanged(const QString& newName);
     void OnKeywordChanged(QTreeWidgetItem* curr, QTreeWidgetItem* prev);
 
-    int GetVideoIndexFromTreeItem(QTreeWidgetItem* treeItem);
+    int GetVideoIndexFromTreeItem(const QTreeWidgetItem* treeItem) const;
     void UpdateStartEndUI();
-    void OpenVideo(qint64 videoIndex);
+    void UpdateKeywordUI();
+    void UpdateCurrentVideoName();
+    void UpdateActionStates();
+    void ClearCurrentClipUI();
+    void LoadVideoFiles(const QStringList& filePaths, const QDir& directory, const QString& preparedOutputDirectory);
+    void OpenVideo(int videoIndex);
     void DisableActions();
     void EnableActions();
     void ProcessClips();
@@ -60,8 +68,8 @@ private:
     QMediaPlayer* player;
     QVideoWidget* videoWidget;
     QAudioOutput* audioOutput;
-    QIcon* playIcon;
-    QIcon* pauseIcon;
+    QIcon playIcon;
+    QIcon pauseIcon;
 
     // Videos
     QueueItem* currentVideo;
@@ -71,10 +79,7 @@ private:
 
     struct UserSettings
     {
-        bool showFfmpeg = false;
         bool copyDateTime = true;
-        float preferredVolume = 1.0f;
-        QStringList keywords;
     } userSettings;
 };
 

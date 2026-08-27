@@ -1,12 +1,9 @@
 #include <Windows.h>
-#include <process.h>
 
 #include <QDir>
-#include <QProcess>
-#include <QMessageBox>
 #include <QApplication>
 
-#include "ffmpeg.h"
+#include "FFmpeg.h"
 
 namespace FFmpeg
 {
@@ -35,6 +32,11 @@ namespace FFmpeg
         }
 
 		const bool result = ShellExecuteExA(&shExecInfo);
+
+        if (!result || shExecInfo.hProcess == nullptr)
+        {
+            return false;
+        }
 
 		WaitForSingleObject(shExecInfo.hProcess, INFINITE);
 		CloseHandle(shExecInfo.hProcess);

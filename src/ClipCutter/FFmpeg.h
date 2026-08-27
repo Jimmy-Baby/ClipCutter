@@ -3,7 +3,7 @@
 
 #include <QString>
 
-#include "queueitem.h"
+#include "QueueItem.h"
 
 namespace FFmpeg
 {
