@@ -1,5 +1,8 @@
 #include "Core/Export/ExportQueueController.h"
 
+#include "Core/Export/OutputPathPlanner.h"
+#include "Core/Export/OutputProfile.h"
+
 #include <QFile>
 
 #include <algorithm>
@@ -7,15 +10,17 @@
 namespace ClipCutter
 {
 ExportQueueController::ExportQueueController(QObject* parent)
-    : ExportQueueController(FfmpegCommandBuilder{}, {}, {}, parent)
+    : ExportQueueController(FfmpegCommandBuilder{}, {}, {}, {}, parent)
 {
 }
 
 ExportQueueController::ExportQueueController(FfmpegCommandBuilder commandBuilder,
                                              ProcessRunnerFactory processRunnerFactory,
-                                             std::unique_ptr<MetadataService> metadataService, QObject* parent)
+                                             std::unique_ptr<MetadataService> metadataService,
+                                             std::unique_ptr<OutputVerifier> outputVerifier, QObject* parent)
     : QObject(parent), CommandBuilder_(std::move(commandBuilder)),
-      ProcessRunnerFactory_(std::move(processRunnerFactory)), MetadataService_(std::move(metadataService))
+      ProcessRunnerFactory_(std::move(processRunnerFactory)), MetadataService_(std::move(metadataService)),
+      OutputVerifier_(std::move(outputVerifier))
 {
     if (!ProcessRunnerFactory_)
     {
@@ -25,6 +30,10 @@ ExportQueueController::ExportQueueController(FfmpegCommandBuilder commandBuilder
     if (!MetadataService_)
     {
         MetadataService_ = std::make_unique<PlatformMetadataService>();
+    }
+    if (!OutputVerifier_)
+    {
+        OutputVerifier_ = std::make_unique<FfprobeOutputVerifier>(this);
     }
 
     TerminationTimer_.setSingleShot(true);
@@ -123,6 +132,8 @@ bool ExportQueueController::RetryJobs(const QSet<QUuid>& jobIds)
         entry.StandardOutput.clear();
         entry.StandardError.clear();
         entry.Result.reset();
+        entry.MetadataWarning.clear();
+        entry.VerificationDiagnostics.clear();
         PendingIndexes_.enqueue(index);
         emit JobProgressChanged(entry.Job.JobId, 0.0, entry.Job.Duration.has_value());
     }
@@ -475,7 +486,11 @@ void ExportQueueController::FinishActiveJob(const EExportState state, const int 
     result.State = state;
     result.ExitCode = exitCode;
     result.ProcessCrashed = processCrashed;
+    result.MediaExportSucceeded = state == EExportState::Succeeded;
+    result.HasMetadataWarning = !entry.MetadataWarning.isEmpty();
     result.ErrorMessage = errorMessage;
+    result.MetadataWarning = entry.MetadataWarning;
+    result.VerificationDiagnostics = entry.VerificationDiagnostics;
     result.StandardOutput = QString::fromUtf8(entry.StandardOutput);
     result.StandardError = QString::fromUtf8(entry.StandardError);
     entry.Result = result;
@@ -517,24 +532,50 @@ void ExportQueueController::FinaliseSuccessfulJob(const int exitCode)
         return;
     }
 
-    QString error;
-
-    if (!PromoteTemporaryOutput(entry.Job, error))
+    const OutputProfile* profile = OutputProfiles::Find(entry.Job.OutputProfileId);
+    if (profile == nullptr)
     {
-        FinishActiveJob(EExportState::Failed, exitCode, false, error);
-
+        FinishActiveJob(EExportState::Failed, exitCode, false, QStringLiteral("Unknown output profile."));
         return;
     }
-
-    if (entry.Job.CopyMetadata &&
-        !MetadataService_->CopyFileTimestamps(entry.Job.SourcePath, entry.Job.FinalOutputPath, error))
-    {
-        FinishActiveJob(EExportState::Failed, exitCode, false, error);
-
-        return;
-    }
-
-    FinishActiveJob(EExportState::Succeeded, exitCode, false, QString());
+    const QUuid jobId = entry.Job.JobId;
+    OutputVerifier_->Verify(entry.Job, *profile,
+                            [this, jobId, exitCode](VerificationResult verification)
+                            {
+                                if (ActiveIndex_ < 0 || Entries_.at(ActiveIndex_).Job.JobId != jobId) return;
+                                JobEntry& active = Entries_[ActiveIndex_];
+                                active.VerificationDiagnostics = verification.Diagnostics;
+                                if (!verification.Diagnostics.isEmpty())
+                                {
+                                    AppendRetained(active.StandardError,
+                                                   QByteArray("\nOutput verification:\n") + verification.Diagnostics.toUtf8());
+                                    emit JobLogUpdated(jobId, QStringLiteral("\nOutput verification:\n") + verification.Diagnostics);
+                                }
+                                if (!verification.Success)
+                                {
+                                    FinishActiveJob(EExportState::Failed, exitCode, false, verification.ErrorMessage);
+                                    return;
+                                }
+                                const FileOperationResult promoted = OutputPathPlanner::Finalise(
+                                    active.Job.TemporaryOutputPath, active.Job.FinalOutputPath,
+                                    active.Job.CollisionPolicy);
+                                if (!promoted.Success)
+                                {
+                                    FinishActiveJob(EExportState::Failed, exitCode, false, promoted.ErrorMessage);
+                                    return;
+                                }
+                                if (active.Job.CopyMetadata)
+                                {
+                                    const MetadataResult metadata = MetadataService_->CopyFileTimestamps(
+                                        active.Job.SourcePath, active.Job.FinalOutputPath);
+                                    if (!metadata.Success)
+                                    {
+                                        active.MetadataWarning = metadata.Message;
+                                        emit JobLogUpdated(jobId, QStringLiteral("Metadata warning: %1\n").arg(metadata.Message));
+                                    }
+                                }
+                                FinishActiveJob(EExportState::Succeeded, exitCode, false, QString());
+                            });
 }
 
 void ExportQueueController::CompleteQueueIfIdle()
@@ -554,6 +595,7 @@ void ExportQueueController::CompleteQueueIfIdle()
         {
         case EExportState::Succeeded:
             ++summary.SucceededCount;
+            if (!entry.MetadataWarning.isEmpty()) ++summary.WarningCount;
             break;
         case EExportState::Failed:
             ++summary.FailedCount;
@@ -635,39 +677,6 @@ bool ExportQueueController::SetState(JobEntry& entry, const EExportState state)
 
     entry.State = state;
     emit JobStateChanged(entry.Job.JobId, state);
-
-    return true;
-}
-
-bool ExportQueueController::PromoteTemporaryOutput(const ExportJob& job, QString& error) const
-{
-    error.clear();
-
-    if (job.TemporaryOutputPath == job.FinalOutputPath)
-    {
-        return QFile::exists(job.FinalOutputPath);
-    }
-
-    if (!QFile::exists(job.TemporaryOutputPath))
-    {
-        error = QStringLiteral("FFmpeg reported success but did not create the temporary output file.");
-
-        return false;
-    }
-
-    if (QFile::exists(job.FinalOutputPath) && !QFile::remove(job.FinalOutputPath))
-    {
-        error = QStringLiteral("Unable to replace the existing output file: %1").arg(job.FinalOutputPath);
-
-        return false;
-    }
-
-    if (!QFile::rename(job.TemporaryOutputPath, job.FinalOutputPath))
-    {
-        error = QStringLiteral("Unable to move the completed export to: %1").arg(job.FinalOutputPath);
-
-        return false;
-    }
 
     return true;
 }

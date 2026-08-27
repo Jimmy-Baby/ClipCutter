@@ -15,9 +15,12 @@ struct ExportSegment
     QUuid ClipId;
     QUuid SegmentId;
     QString SourcePath;
+    QString OutputBaseName;
+    QString OutputExtension;
     QString OutputFileName;
     TimeRange Range;
     QString ExportProfileId;
+    MediaInfo SourceMediaInfo;
     bool Skipped = false;
 };
 
@@ -84,6 +87,7 @@ public:
     bool UpdateOutputBaseName(const QUuid& segmentId, const QString& outputBaseName);
     bool UpdateTrimRange(const QUuid& segmentId, const TimeRange& range, QString* error = nullptr);
     bool UpdateMediaDuration(const QUuid& clipId, std::chrono::milliseconds duration, QString* error = nullptr);
+    bool UpdateMediaInfo(const QUuid& clipId, const QString& expectedSourcePath, const MediaInfo& info);
     bool ApplyPrefix(const QUuid& segmentId, const QString& prefix);
     bool ClearPrefix(const QUuid& segmentId);
     void ClearPrefixFromAll(const QString& prefix);
@@ -117,7 +121,7 @@ private:
 
     RowRef GetRowRef(int row);
     ConstRowRef GetRowRef(int row) const;
-    static QString StatusText(const Segment& segment);
+    static QString StatusText(const Clip& clip, const Segment& segment);
     static QString TimeText(std::chrono::milliseconds value);
     static bool IsRuntimeEditable(EExportState state);
 

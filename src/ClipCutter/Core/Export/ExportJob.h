@@ -1,6 +1,9 @@
 #ifndef CLIPCUTTER_CORE_EXPORT_EXPORTJOB_H
 #define CLIPCUTTER_CORE_EXPORT_EXPORTJOB_H
 
+#include "Core/Media/MediaInfo.h"
+#include "Core/Export/OutputPathPlanner.h"
+
 #include <QString>
 #include <QUuid>
 
@@ -9,16 +12,6 @@
 
 namespace ClipCutter
 {
-enum class EEncodingQuality
-{
-    Copy,
-    Lowest,
-    Low,
-    Medium,
-    High,
-    Highest
-};
-
 struct ExportJob
 {
     QUuid JobId = QUuid::createUuid();
@@ -29,8 +22,10 @@ struct ExportJob
     QString TemporaryOutputPath;
     std::chrono::milliseconds StartTime{0};
     std::optional<std::chrono::milliseconds> Duration;
-    EEncodingQuality EncodingQuality = EEncodingQuality::Copy;
+    QString OutputProfileId = QStringLiteral("fast-copy");
+    MediaInfo SourceMediaInfo;
     bool CopyMetadata = true;
+    ECollisionPolicy CollisionPolicy = ECollisionPolicy::Ask;
     bool SkipRequested = false;
     QString DisplayName;
 };

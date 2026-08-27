@@ -80,11 +80,29 @@ private:
 class SuccessfulMetadataService final : public ClipCutter::MetadataService
 {
 public:
-    bool CopyFileTimestamps(const QString&, const QString&, QString& error) override
+    ClipCutter::MetadataResult CopyFileTimestamps(const QString&, const QString&) override
     {
-        error.clear();
+        return {true, ClipCutter::EMetadataError::None, {}, 0};
+    }
+};
 
-        return true;
+class WarningMetadataService final : public ClipCutter::MetadataService
+{
+public:
+    ClipCutter::MetadataResult CopyFileTimestamps(const QString&, const QString&) override
+    {
+        return {false, ClipCutter::EMetadataError::OutputWriteFailed,
+                QStringLiteral("metadata denied"), 5};
+    }
+};
+
+class SuccessfulOutputVerifier final : public ClipCutter::OutputVerifier
+{
+public:
+    using OutputVerifier::OutputVerifier;
+    void Verify(const ClipCutter::ExportJob&, const ClipCutter::OutputProfile&, Callback callback) override
+    {
+        callback({true, {}, QStringLiteral("test verification")});
     }
 };
 
@@ -116,6 +134,8 @@ ClipCutter::ExportJob MakeJob(const QTemporaryDir& directory, const QString& nam
     job.StartTime = 250ms;
     job.Duration = duration;
     job.CopyMetadata = false;
+    job.SourceMediaInfo.HasVideo = true;
+    job.SourceMediaInfo.HasAudio = false;
     job.DisplayName = name;
 
     return job;
@@ -133,7 +153,8 @@ std::unique_ptr<ClipCutter::ExportQueueController> MakeController(RunnerHarness&
 {
     return std::make_unique<ClipCutter::ExportQueueController>(
         ClipCutter::FfmpegCommandBuilder(QStringLiteral("test-ffmpeg")),
-        [&harness](QObject* parent) { return harness.Create(parent); }, std::make_unique<SuccessfulMetadataService>());
+        [&harness](QObject* parent) { return harness.Create(parent); }, std::make_unique<SuccessfulMetadataService>(),
+        std::make_unique<SuccessfulOutputVerifier>());
 }
 
 double LastProgress(const QSignalSpy& spy)
@@ -165,6 +186,7 @@ private slots:
     void QueueContainingOnlySkippedJobs();
     void DuplicateFinishedAndErrorSignals();
     void TotalProgressUsesDurationWeights();
+    void MetadataFailureIsSuccessfulWithWarning();
     void OptionalFfmpegIntegration();
 };
 
@@ -176,7 +198,7 @@ void ExportEngineTests::CommandArgumentGeneration()
     job.SourcePath = QStringLiteral("C:/Media/source.mp4");
     job.TemporaryOutputPath = QStringLiteral("C:/Output/output.part.mp4");
     job.StartTime = 1250ms;
-    job.EncodingQuality = ClipCutter::EEncodingQuality::Medium;
+    job.OutputProfileId = QStringLiteral("accurate-balanced");
 
     const ClipCutter::FfmpegCommand command =
         ClipCutter::FfmpegCommandBuilder(QStringLiteral("C:/Tools/ffmpeg.exe")).Build(job);
@@ -187,21 +209,33 @@ void ExportEngineTests::CommandArgumentGeneration()
                                              QStringLiteral("error"),
                                              QStringLiteral("-progress"),
                                              QStringLiteral("pipe:1"),
-                                             QStringLiteral("-y"),
+                                             QStringLiteral("-n"),
                                              QStringLiteral("-i"),
                                              QStringLiteral("C:/Media/source.mp4"),
                                              QStringLiteral("-ss"),
                                              QStringLiteral("1250ms"),
                                              QStringLiteral("-t"),
                                              QStringLiteral("2500ms"),
+                                             QStringLiteral("-map"),
+                                             QStringLiteral("0:v:0"),
+                                             QStringLiteral("-map"),
+                                             QStringLiteral("0:a:0?"),
+                                             QStringLiteral("-map_metadata"),
+                                             QStringLiteral("0"),
+                                             QStringLiteral("-map_chapters"),
+                                             QStringLiteral("0"),
                                              QStringLiteral("-c:v"),
                                              QStringLiteral("libx264"),
                                              QStringLiteral("-crf"),
-                                             QStringLiteral("25"),
+                                             QStringLiteral("23"),
                                              QStringLiteral("-preset"),
-                                             QStringLiteral("fast"),
+                                             QStringLiteral("medium"),
                                              QStringLiteral("-c:a"),
-                                             QStringLiteral("copy"),
+                                             QStringLiteral("aac"),
+                                             QStringLiteral("-movflags"),
+                                             QStringLiteral("+faststart"),
+                                             QStringLiteral("-f"),
+                                             QStringLiteral("mp4"),
                                              QStringLiteral("C:/Output/output.part.mp4")}));
 }
 
@@ -532,13 +566,42 @@ void ExportEngineTests::TotalProgressUsesDurationWeights()
     QVERIFY(qAbs(LastProgress(progressSpy) - 1.0) < 0.0001);
 }
 
+void ExportEngineTests::MetadataFailureIsSuccessfulWithWarning()
+{
+    QTemporaryDir directory;
+    RunnerHarness harness;
+    auto controller = std::make_unique<ClipCutter::ExportQueueController>(
+        ClipCutter::FfmpegCommandBuilder(QStringLiteral("test-ffmpeg")),
+        [&harness](QObject* parent) { return harness.Create(parent); }, std::make_unique<WarningMetadataService>(),
+        std::make_unique<SuccessfulOutputVerifier>());
+    ClipCutter::ExportJob job = MakeJob(directory, QStringLiteral("metadata-warning"));
+    job.CopyMetadata = true;
+    QSignalSpy completionSpy(controller.get(), &ClipCutter::ExportQueueController::QueueCompleted);
+    controller->SetJobs({job});
+    controller->Start();
+    QTRY_COMPARE(harness.Runners.size(), 1);
+    harness.Runners.at(0)->EmitStarted();
+    CreateTemporaryOutput(job);
+    harness.Runners.at(0)->EmitFinished(0);
+    QTRY_COMPARE(completionSpy.count(), 1);
+    QCOMPARE(*controller->StateForJob(job.JobId), ClipCutter::EExportState::Succeeded);
+    const auto result = controller->ResultForJob(job.JobId);
+    QVERIFY(result.has_value());
+    QVERIFY(result->MediaExportSucceeded);
+    QVERIFY(result->HasMetadataWarning);
+    QCOMPARE(result->MetadataWarning, QStringLiteral("metadata denied"));
+    const auto summary = qvariant_cast<ClipCutter::ExportSummary>(completionSpy.constFirst().constFirst());
+    QCOMPARE(summary.WarningCount, 1);
+}
+
 void ExportEngineTests::OptionalFfmpegIntegration()
 {
     const QString ffmpegPath = qEnvironmentVariable("CLIPCUTTER_TEST_FFMPEG");
+    const QString ffprobePath = qEnvironmentVariable("CLIPCUTTER_TEST_FFPROBE");
 
-    if (ffmpegPath.isEmpty())
+    if (ffmpegPath.isEmpty() || ffprobePath.isEmpty())
     {
-        QSKIP("Set CLIPCUTTER_TEST_FFMPEG to enable the FFmpeg integration test.");
+        QSKIP("Set CLIPCUTTER_TEST_FFMPEG and CLIPCUTTER_TEST_FFPROBE to enable the integration test.");
     }
 
     QTemporaryDir directory;
@@ -561,7 +624,8 @@ void ExportEngineTests::OptionalFfmpegIntegration()
     job.SourcePath = sourcePath;
     job.StartTime = 0ms;
     ClipCutter::ExportQueueController controller(ClipCutter::FfmpegCommandBuilder(ffmpegPath), {},
-                                                 std::make_unique<SuccessfulMetadataService>());
+                                                 std::make_unique<SuccessfulMetadataService>(),
+                                                 std::make_unique<ClipCutter::FfprobeOutputVerifier>(nullptr, ffprobePath));
     QSignalSpy completionSpy(&controller, &ClipCutter::ExportQueueController::QueueCompleted);
     controller.SetJobs({job});
     controller.Start();

@@ -2,6 +2,7 @@
 
 #include "ClipLogic.h"
 #include "Utility.h"
+#include "Core/Export/OutputProfile.h"
 #include "ui_MainWindow.h"
 
 #include <QAudioOutput>
@@ -16,6 +17,8 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QStandardItemModel>
+#include <QStatusBar>
 #include <QSlider>
 #include <QTableView>
 #include <QTreeWidget>
@@ -36,7 +39,8 @@ ClipCutter::MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent), Ui_(new Ui::ClipCutterWindow), Player_(nullptr), VideoWidget_(nullptr),
       AudioOutput_(nullptr), PlayIcon_(QStringLiteral(":/icons/play-solid.svg")),
       PauseIcon_(QStringLiteral(":/icons/pause-solid.svg")), QueueModel_(new ClipQueueModel(this)),
-      ExportController_(new ExportQueueController(this))
+      ExportController_(new ExportQueueController(this)), MediaProbe_(new MediaProbe(this)),
+      StartupDiagnostics_(new StartupDiagnostics(this))
 {
     Ui_->setupUi(this);
     Ui_->clipsTable->setModel(QueueModel_);
@@ -83,10 +87,24 @@ ClipCutter::MainWindow::MainWindow(QWidget* parent)
     connect(Ui_->timelineSlider, &QSlider::sliderMoved, Player_, &QMediaPlayer::setPosition);
     AudioOutput_->setVolume(1.0f);
     connect(Ui_->volumeSlider, &QSlider::sliderMoved, this, &ClipCutter::MainWindow::OnVolumeChanged);
-    Ui_->qualityCombo->addItems({QStringLiteral("Copy"), QStringLiteral("Lowest"), QStringLiteral("Low"),
-                                 QStringLiteral("Medium"), QStringLiteral("High"), QStringLiteral("Best")});
-    connect(Ui_->qualityCombo, &QComboBox::currentTextChanged, QueueModel_,
-            [this](const QString& text) { QueueModel_->UpdateAllExportProfiles(text.toLower()); });
+    for (const OutputProfile& profile : OutputProfiles::BuiltIns())
+    {
+        Ui_->qualityCombo->addItem(profile.DisplayName, profile.Id);
+        Ui_->qualityCombo->setItemData(Ui_->qualityCombo->count() - 1, profile.Description, Qt::ToolTipRole);
+    }
+    Ui_->qualityCombo->setCurrentIndex(0);
+    connect(Ui_->qualityCombo, &QComboBox::currentIndexChanged, QueueModel_,
+            [this](const int)
+            {
+                QueueModel_->UpdateAllExportProfiles(SelectedProfileId());
+                UpdateActionStates();
+            });
+    Ui_->collisionCombo->addItem(QStringLiteral("Ask"), static_cast<int>(ECollisionPolicy::Ask));
+    Ui_->collisionCombo->addItem(QStringLiteral("Auto Rename"), static_cast<int>(ECollisionPolicy::AutoRename));
+    Ui_->collisionCombo->addItem(QStringLiteral("Skip"), static_cast<int>(ECollisionPolicy::Skip));
+    Ui_->collisionCombo->addItem(QStringLiteral("Overwrite"), static_cast<int>(ECollisionPolicy::Overwrite));
+    connect(MediaProbe_, &MediaProbe::ProbeCompleted, this, &MainWindow::OnProbeCompleted);
+    connect(StartupDiagnostics_, &StartupDiagnostics::Completed, this, &MainWindow::OnDiagnosticsCompleted);
     connect(ExportController_, &ExportQueueController::JobStateChanged, this,
             &ClipCutter::MainWindow::OnJobStateChanged);
     connect(ExportController_, &ExportQueueController::JobProgressChanged, this,
@@ -96,6 +114,7 @@ ClipCutter::MainWindow::MainWindow(QWidget* parent)
             { Ui_->progressBar->setValue(qRound(std::clamp(progress, 0.0, 1.0) * 100.0)); });
     connect(ExportController_, &ExportQueueController::QueueCompleted, this, &ClipCutter::MainWindow::OnQueueCompleted);
     ClearCurrentClipUi();
+    StartupDiagnostics_->Start();
 }
 
 ClipCutter::MainWindow::~MainWindow()
@@ -261,11 +280,6 @@ void ClipCutter::MainWindow::OnPlayerDurationChanged(qint64 duration)
 {
     Ui_->timelineSlider->setMaximum(
         static_cast<int>(qBound<qint64>(qint64{0}, duration, qint64{std::numeric_limits<int>::max()})));
-    if (!CurrentClipId_.isNull() && duration > 0)
-    {
-        QueueModel_->UpdateMediaDuration(CurrentClipId_, std::chrono::milliseconds{duration});
-        UpdateStartEndUi();
-    }
 }
 
 void ClipCutter::MainWindow::OnPlayerPositionChanged(qint64 position)
@@ -289,7 +303,7 @@ void ClipCutter::MainWindow::OnVideoNameChanged(const QString& newName)
 {
     if (!CurrentSegmentId_.isNull())
     {
-        QueueModel_->UpdateOutputName(CurrentSegmentId_, newName + QStringLiteral(".mp4"));
+        QueueModel_->UpdateOutputBaseName(CurrentSegmentId_, newName);
     }
 }
 
@@ -340,8 +354,9 @@ void ClipCutter::MainWindow::OnQueueCompleted(const ExportSummary& summary)
 
     const QString title = summary.FailedCount > 0 ? QStringLiteral("Export completed with failures")
                                                   : QStringLiteral("Export queue completed");
-    const QString message = QStringLiteral("Succeeded: %1\nFailed: %2\nSkipped: %3\nCancelled: %4")
+    const QString message = QStringLiteral("Succeeded: %1\nMetadata warnings: %2\nFailed: %3\nSkipped: %4\nCancelled: %5")
                                 .arg(summary.SucceededCount)
+                                .arg(summary.WarningCount)
                                 .arg(summary.FailedCount)
                                 .arg(summary.SkippedCount)
                                 .arg(summary.CancelledCount);
@@ -385,11 +400,33 @@ void ClipCutter::MainWindow::UpdateActionStates()
     const Segment* segment = CurrentSegment();
     const bool hasVideo = segment != nullptr;
     const bool hasQueue = QueueModel_->rowCount() > 0;
+    bool hasExportable = true;
+    bool hasUnskipped = false;
+    for (const Clip& clip : QueueModel_->Clips())
+    {
+        for (const Segment& candidate : clip.Segments)
+        {
+            if (!candidate.Skipped)
+            {
+                hasUnskipped = true;
+                hasExportable = hasExportable && clip.MediaInformation.IsReliableForExport();
+            }
+        }
+    }
+    hasExportable = hasExportable && hasUnskipped;
+    bool profileSupported = false;
+    if (const auto* profileModel = qobject_cast<const QStandardItemModel*>(Ui_->qualityCombo->model()))
+    {
+        const QStandardItem* item = profileModel->item(Ui_->qualityCombo->currentIndex());
+        profileSupported = item != nullptr && item->isEnabled();
+    }
     const bool exportActive = ExportController_->IsActive();
     const bool editingAllowed = hasVideo && !exportActive;
     const int row = QueueModel_->RowForSegment(CurrentSegmentId_);
     bool canRetry = false;
+    const Clip* currentClip = CurrentClip();
     bool hasDiagnostics = segment != nullptr && !segment->ExportLog.isEmpty();
+    hasDiagnostics = hasDiagnostics || (currentClip != nullptr && currentClip->MediaInformation.ProbeError.has_value());
 
     for (const ExportJob& job : ExportController_->Jobs())
     {
@@ -411,18 +448,19 @@ void ClipCutter::MainWindow::UpdateActionStates()
     Ui_->actionStop->setEnabled(hasVideo);
     Ui_->actionSetStart->setEnabled(editingAllowed);
     Ui_->actionSetEnd->setEnabled(editingAllowed);
-    Ui_->actionProcessClips->setEnabled(hasQueue && !exportActive);
+    Ui_->actionProcessClips->setEnabled(hasExportable && DiagnosticsComplete_ && profileSupported && !exportActive);
     Ui_->actionOpenFolder->setEnabled(!exportActive);
     Ui_->actionOpenFiles->setEnabled(!exportActive);
     Ui_->clipNameEdit->setEnabled(editingAllowed);
     Ui_->buttonUseSelected->setEnabled(editingAllowed && !Ui_->keywordsTree->selectedItems().isEmpty());
     Ui_->buttonRemoveSelected->setEnabled(!exportActive && !Ui_->keywordsTree->selectedItems().isEmpty());
-    Ui_->processButton->setEnabled(hasQueue && !exportActive);
+    Ui_->processButton->setEnabled(hasExportable && DiagnosticsComplete_ && profileSupported && !exportActive);
     Ui_->cancelButton->setEnabled(exportActive);
     Ui_->retryButton->setEnabled(!exportActive && canRetry);
     Ui_->viewLogButton->setEnabled(hasDiagnostics);
     Ui_->skipAllButton->setEnabled(hasQueue && !exportActive);
     Ui_->qualityCombo->setEnabled(!exportActive);
+    Ui_->collisionCombo->setEnabled(!exportActive);
     Ui_->checkboxCopyMetadata->setEnabled(!exportActive);
 }
 
@@ -454,9 +492,13 @@ void ClipCutter::MainWindow::LoadImportedClips(ClipCutter::ImportResult result, 
     Ui_->progressBar->setValue(0);
     if (Ui_->qualityCombo->currentIndex() >= 0)
     {
-        QueueModel_->UpdateAllExportProfiles(Ui_->qualityCombo->currentText().toLower());
+        QueueModel_->UpdateAllExportProfiles(SelectedProfileId());
     }
     PresentImportMessages(result);
+    for (const Clip& clip : QueueModel_->Clips())
+    {
+        MediaProbe_->Probe(clip.Id, clip.SourcePath);
+    }
     if (QueueModel_->rowCount() > 0)
     {
         OpenVideo(0);
@@ -533,10 +575,41 @@ void ClipCutter::MainWindow::ProcessClips()
         return;
     }
     OutputDirectory_ = preparedOutputDirectory;
+    QVector<OutputRequest> requests;
+    for (const ExportSegment& segment : segments)
+    {
+        if (!segment.Skipped)
+            requests.append({segment.SegmentId, segment.OutputBaseName, segment.OutputExtension});
+    }
+    ECollisionPolicy collisionPolicy = SelectedCollisionPolicy();
+    OutputPreflightResult preflight = OutputPathPlanner::Preflight(requests, QDir(OutputDirectory_), collisionPolicy);
+    if (collisionPolicy == ECollisionPolicy::Ask && !preflight.Collisions.isEmpty())
+    {
+        QMessageBox choice(QMessageBox::Question, QStringLiteral("Output conflicts"),
+                           QStringLiteral("%1 output path(s) conflict. Resolve them before export.")
+                               .arg(preflight.Collisions.size()), QMessageBox::Cancel, this);
+        QPushButton* rename = choice.addButton(QStringLiteral("Auto Rename"), QMessageBox::AcceptRole);
+        QPushButton* skip = choice.addButton(QStringLiteral("Skip Existing"), QMessageBox::DestructiveRole);
+        QPushButton* overwrite = choice.addButton(QStringLiteral("Overwrite"), QMessageBox::YesRole);
+        choice.setDetailedText(preflight.Collisions.join(QLatin1Char('\n')));
+        choice.exec();
+        if (choice.clickedButton() == rename) collisionPolicy = ECollisionPolicy::AutoRename;
+        else if (choice.clickedButton() == skip) collisionPolicy = ECollisionPolicy::Skip;
+        else if (choice.clickedButton() == overwrite) collisionPolicy = ECollisionPolicy::Overwrite;
+        else return;
+        preflight = OutputPathPlanner::Preflight(requests, QDir(OutputDirectory_), collisionPolicy);
+    }
+    if (!preflight.Errors.isEmpty() || !preflight.Collisions.isEmpty())
+    {
+        QMessageBox::warning(this, QStringLiteral("Output preflight"),
+                             (preflight.Errors + preflight.Collisions).join(QLatin1Char('\n')));
+        return;
+    }
+    OutputPathPlanner::CleanupStaleTemporaryFiles(QDir(OutputDirectory_));
     QueueModel_->ResetExportRuntime();
     JobToSegmentId_.clear();
 
-    QVector<ExportJob> jobs = BuildExportJobs(segments);
+    QVector<ExportJob> jobs = BuildExportJobs(segments, preflight.Outputs, collisionPolicy);
 
     for (const ExportJob& job : jobs)
     {
@@ -597,6 +670,9 @@ void ClipCutter::MainWindow::ShowSelectedExportLog()
     }
 
     QString log = segment->ExportLog;
+    const Clip* clip = CurrentClip();
+    if (clip != nullptr && clip->MediaInformation.ProbeError.has_value())
+        log.prepend(QStringLiteral("Probe error: %1\n").arg(*clip->MediaInformation.ProbeError));
 
     for (const ExportJob& job : ExportController_->Jobs())
     {
@@ -611,6 +687,10 @@ void ClipCutter::MainWindow::ShowSelectedExportLog()
         {
             log.prepend(result->ErrorMessage + QLatin1Char('\n'));
         }
+        if (result.has_value() && result->HasMetadataWarning)
+            log.prepend(QStringLiteral("Metadata warning: %1\n").arg(result->MetadataWarning));
+        if (result.has_value() && !result->VerificationDiagnostics.isEmpty())
+            log.append(QStringLiteral("\nVerification diagnostics:\n") + result->VerificationDiagnostics);
 
         break;
     }
@@ -687,7 +767,9 @@ void ClipCutter::MainWindow::UseKeyword()
     UpdateActionStates();
 }
 
-QVector<ClipCutter::ExportJob> ClipCutter::MainWindow::BuildExportJobs(const QVector<ExportSegment>& segments) const
+QVector<ClipCutter::ExportJob> ClipCutter::MainWindow::BuildExportJobs(
+    const QVector<ExportSegment>& segments, const QVector<PlannedOutput>& outputs,
+    const ECollisionPolicy collisionPolicy) const
 {
     QVector<ExportJob> jobs;
     jobs.reserve(segments.size());
@@ -698,7 +780,6 @@ QVector<ClipCutter::ExportJob> ClipCutter::MainWindow::BuildExportJobs(const QVe
         job.ClipId = segment.ClipId;
         job.SegmentId = segment.SegmentId;
         job.SourcePath = segment.SourcePath;
-        job.FinalOutputPath = QDir(OutputDirectory_).absoluteFilePath(segment.OutputFileName);
         job.StartTime = segment.Range.Start();
 
         if (segment.Range.Duration().count() > 0)
@@ -706,29 +787,76 @@ QVector<ClipCutter::ExportJob> ClipCutter::MainWindow::BuildExportJobs(const QVe
             job.Duration = segment.Range.Duration();
         }
 
-        job.EncodingQuality = SelectedEncodingQuality();
+        job.OutputProfileId = segment.ExportProfileId;
+        job.SourceMediaInfo = segment.SourceMediaInfo;
         job.CopyMetadata = UserSettings_.CopyDateTime;
         job.SkipRequested = segment.Skipped;
+        job.CollisionPolicy = collisionPolicy;
         job.DisplayName = segment.OutputFileName;
-
-        const QFileInfo outputFile(job.FinalOutputPath);
-        const QString suffix = outputFile.suffix();
-        const QString temporaryName =
-            suffix.isEmpty()
-                ? QStringLiteral(".clipcutter-%1-part").arg(job.JobId.toString(QUuid::WithoutBraces))
-                : QStringLiteral(".clipcutter-%1-part.%2").arg(job.JobId.toString(QUuid::WithoutBraces), suffix);
-        job.TemporaryOutputPath = outputFile.dir().absoluteFilePath(temporaryName);
+        for (const PlannedOutput& output : outputs)
+        {
+            if (output.SegmentId != segment.SegmentId) continue;
+            job.FinalOutputPath = output.FinalPath;
+            job.TemporaryOutputPath = output.TemporaryPath;
+            job.SkipRequested = job.SkipRequested || output.Skipped;
+            job.DisplayName = QFileInfo(output.FinalPath).fileName();
+            break;
+        }
+        if (job.FinalOutputPath.isEmpty())
+        {
+            job.FinalOutputPath = QDir(OutputDirectory_).absoluteFilePath(segment.OutputFileName);
+            job.TemporaryOutputPath = OutputPathPlanner::CreateTemporaryPath(job.FinalOutputPath, job.JobId);
+        }
         jobs.append(std::move(job));
     }
 
     return jobs;
 }
 
-ClipCutter::EEncodingQuality ClipCutter::MainWindow::SelectedEncodingQuality() const
+QString ClipCutter::MainWindow::SelectedProfileId() const
 {
-    const int selectedIndex =
-        std::clamp(Ui_->qualityCombo->currentIndex(), 0, static_cast<int>(EEncodingQuality::Highest));
-    return static_cast<EEncodingQuality>(selectedIndex);
+    return Ui_->qualityCombo->currentData().toString();
+}
+
+ClipCutter::ECollisionPolicy ClipCutter::MainWindow::SelectedCollisionPolicy() const
+{
+    return static_cast<ECollisionPolicy>(Ui_->collisionCombo->currentData().toInt());
+}
+
+void ClipCutter::MainWindow::OnProbeCompleted(const MediaProbeResult& result)
+{
+    if (!QueueModel_->UpdateMediaInfo(result.ClipId, result.SourcePath, result.Info)) return;
+    if (result.ClipId == CurrentClipId_)
+    {
+        UpdateStartEndUi();
+        if (result.Info.Duration.has_value())
+            Ui_->timelineSlider->setMaximum(static_cast<int>(qMin<qint64>(result.Info.Duration->count(),
+                                                                         std::numeric_limits<int>::max())));
+    }
+    UpdateActionStates();
+}
+
+void ClipCutter::MainWindow::OnDiagnosticsCompleted(const StartupDiagnosticsResult& result)
+{
+    DiagnosticsComplete_ = true;
+    auto* model = qobject_cast<QStandardItemModel*>(Ui_->qualityCombo->model());
+    int firstSupported = -1;
+    for (int index = 0; index < Ui_->qualityCombo->count(); ++index)
+    {
+        const ProfileSupport support = result.Profiles.value(Ui_->qualityCombo->itemData(index).toString());
+        if (model != nullptr && model->item(index) != nullptr)
+        {
+            model->item(index)->setEnabled(support.Supported);
+            if (!support.Supported) Ui_->qualityCombo->setItemData(index, support.Reason, Qt::ToolTipRole);
+        }
+        if (support.Supported && firstSupported < 0) firstSupported = index;
+    }
+    if (firstSupported >= 0 &&
+        !result.Profiles.value(SelectedProfileId()).Supported)
+        Ui_->qualityCombo->setCurrentIndex(firstSupported);
+    if (!result.FfmpegAvailable || !result.FfprobeAvailable)
+        statusBar()->showMessage(QStringLiteral("Export unavailable: ffmpeg and ffprobe are required."));
+    UpdateActionStates();
 }
 
 QUuid ClipCutter::MainWindow::SegmentIdForJob(const QUuid& jobId) const

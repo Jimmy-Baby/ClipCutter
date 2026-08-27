@@ -14,7 +14,11 @@ struct ExportResult
     EExportState State = EExportState::Failed;
     int ExitCode = -1;
     bool ProcessCrashed = false;
+    bool MediaExportSucceeded = false;
+    bool HasMetadataWarning = false;
     QString ErrorMessage;
+    QString MetadataWarning;
+    QString VerificationDiagnostics;
     QString StandardOutput;
     QString StandardError;
 };
@@ -25,6 +29,7 @@ struct ExportSummary
     int FailedCount = 0;
     int SkippedCount = 0;
     int CancelledCount = 0;
+    int WarningCount = 0;
 };
 } // namespace ClipCutter
 

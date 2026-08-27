@@ -1,7 +1,10 @@
 #include "Core/Export/FfmpegCommandBuilder.h"
 
+#include "Core/Export/OutputProfile.h"
+
 #include <QCoreApplication>
 #include <QDir>
+#include <QFileInfo>
 
 namespace ClipCutter
 {
@@ -10,10 +13,11 @@ FfmpegCommandBuilder::FfmpegCommandBuilder(QString programPath) : ProgramPath_(s
     if (ProgramPath_.isEmpty())
     {
 #ifdef Q_OS_WIN
-        ProgramPath_ = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("ffmpeg.exe"));
+        const QString bundled = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("ffmpeg.exe"));
 #else
-        ProgramPath_ = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("ffmpeg"));
+        const QString bundled = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("ffmpeg"));
 #endif
+        ProgramPath_ = QFileInfo::exists(bundled) ? bundled : QStringLiteral("ffmpeg");
     }
 }
 
@@ -21,75 +25,51 @@ FfmpegCommand FfmpegCommandBuilder::Build(const ExportJob& job) const
 {
     FfmpegCommand command;
     command.Program = ProgramPath_;
-    command.Arguments =
-    {
+    command.Arguments = {
         QStringLiteral("-nostdin"),
         QStringLiteral("-hide_banner"),
         QStringLiteral("-loglevel"),
         QStringLiteral("error"),
         QStringLiteral("-progress"),
         QStringLiteral("pipe:1"),
-        QStringLiteral("-y"),
-        QStringLiteral("-i"),
-        job.SourcePath,
-        QStringLiteral("-ss"),
-        MillisecondsArgument(job.StartTime)
+        QStringLiteral("-n")
     };
 
+    const OutputProfile* profile = OutputProfiles::Find(job.OutputProfileId);
+    if (profile == nullptr)
+    {
+        return {};
+    }
+
+    if (profile->TrimMode == ETrimMode::FastCopy)
+    {
+        command.Arguments.append({QStringLiteral("-ss"), MillisecondsArgument(job.StartTime)});
+    }
+    command.Arguments.append({QStringLiteral("-i"), job.SourcePath});
+    if (profile->TrimMode == ETrimMode::AccurateEncode)
+        command.Arguments.append({QStringLiteral("-ss"), MillisecondsArgument(job.StartTime)});
     if (job.Duration.has_value())
+        command.Arguments.append({QStringLiteral("-t"), MillisecondsArgument(*job.Duration)});
+
+    if (profile->TrimMode == ETrimMode::FastCopy)
+        command.Arguments.append({QStringLiteral("-map"), QStringLiteral("0"),
+                                  QStringLiteral("-map_metadata"), QStringLiteral("0"),
+                                  QStringLiteral("-map_chapters"), QStringLiteral("0"),
+                                  QStringLiteral("-c"), QStringLiteral("copy")});
+    else
     {
-        command.Arguments.append(QStringLiteral("-t"));
-        command.Arguments.append(MillisecondsArgument(*job.Duration));
+        command.Arguments.append({QStringLiteral("-map"), QStringLiteral("0:v:0"),
+                                  QStringLiteral("-map"), QStringLiteral("0:a:0?"),
+                                  QStringLiteral("-map_metadata"), QStringLiteral("0"),
+                                  QStringLiteral("-map_chapters"), QStringLiteral("0"),
+                                  QStringLiteral("-c:v"), QStringLiteral("libx264"),
+                                  QStringLiteral("-crf"), QString::number(profile->Crf.value()),
+                                  QStringLiteral("-preset"), profile->EncoderPreset,
+                                  QStringLiteral("-c:a"), QStringLiteral("aac"),
+                                  QStringLiteral("-movflags"), QStringLiteral("+faststart"),
+                                  QStringLiteral("-f"), QStringLiteral("mp4")});
     }
 
-    QStringList encodingArguments;
-
-    switch (job.EncodingQuality)
-    {
-    case EEncodingQuality::Copy:
-        encodingArguments =
-        {
-            QStringLiteral("-c:v"), QStringLiteral("copy"), QStringLiteral("-c:a"), QStringLiteral("copy")
-        };
-        break;
-    case EEncodingQuality::Lowest:
-        encodingArguments =
-        {
-            QStringLiteral("-c:v"), QStringLiteral("libx264"), QStringLiteral("-crf"), QStringLiteral("35"),
-            QStringLiteral("-preset"), QStringLiteral("faster"), QStringLiteral("-c:a"), QStringLiteral("copy")
-        };
-        break;
-    case EEncodingQuality::Low:
-        encodingArguments =
-        {
-            QStringLiteral("-c:v"), QStringLiteral("libx264"), QStringLiteral("-crf"), QStringLiteral("30"),
-            QStringLiteral("-preset"), QStringLiteral("fast"), QStringLiteral("-c:a"), QStringLiteral("copy")
-        };
-        break;
-    case EEncodingQuality::Medium:
-        encodingArguments =
-        {
-            QStringLiteral("-c:v"), QStringLiteral("libx264"), QStringLiteral("-crf"), QStringLiteral("25"),
-            QStringLiteral("-preset"), QStringLiteral("fast"), QStringLiteral("-c:a"), QStringLiteral("copy")
-        };
-        break;
-    case EEncodingQuality::High:
-        encodingArguments =
-        {
-            QStringLiteral("-c:v"), QStringLiteral("libx264"), QStringLiteral("-crf"), QStringLiteral("20"),
-            QStringLiteral("-preset"), QStringLiteral("medium"), QStringLiteral("-c:a"), QStringLiteral("copy")
-        };
-        break;
-    case EEncodingQuality::Highest:
-        encodingArguments =
-        {
-            QStringLiteral("-c:v"), QStringLiteral("libx264"), QStringLiteral("-crf"), QStringLiteral("15"),
-            QStringLiteral("-preset"), QStringLiteral("slow"), QStringLiteral("-c:a"), QStringLiteral("copy")
-        };
-        break;
-    }
-
-    command.Arguments.append(encodingArguments);
     command.Arguments.append(job.TemporaryOutputPath);
 
     return command;

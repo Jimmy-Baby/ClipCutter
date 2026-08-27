@@ -63,11 +63,21 @@ target_sources(clipcutter_core PRIVATE
     "${CLIPCUTTER_SOURCE_DIR}/Core/Export/FfmpegProgressParser.h"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Export/MetadataService.cpp"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Export/MetadataService.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/OutputPathPlanner.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/OutputPathPlanner.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/OutputProfile.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/OutputProfile.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/OutputVerifier.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/OutputVerifier.h"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Export/ProcessRunner.cpp"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Export/ProcessRunner.h"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Import/ClipImporter.cpp"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Import/ClipImporter.h"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Media/MediaInfo.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Media/MediaProbe.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Media/MediaProbe.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Diagnostics/StartupDiagnostics.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Diagnostics/StartupDiagnostics.h"
 )
 target_include_directories(clipcutter_core PUBLIC
     "$<BUILD_INTERFACE:${CLIPCUTTER_SOURCE_DIR}>"
@@ -137,11 +147,24 @@ if(BUILD_TESTING)
     clipcutter_configure_first_party_target(ClipCutterExportTests)
 
     add_test(NAME ClipCutterExportTests COMMAND ClipCutterExportTests)
+
+    qt_add_executable(ClipCutterMediaCorrectnessTests)
+    target_sources(ClipCutterMediaCorrectnessTests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MediaCorrectnessTests.cpp"
+    )
+    target_include_directories(ClipCutterMediaCorrectnessTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_link_libraries(ClipCutterMediaCorrectnessTests PRIVATE clipcutter_core Qt6::Core Qt6::Test)
+    target_compile_features(ClipCutterMediaCorrectnessTests PRIVATE cxx_std_17)
+    clipcutter_configure_first_party_target(ClipCutterMediaCorrectnessTests)
+    add_test(NAME ClipCutterMediaCorrectnessTests COMMAND ClipCutterMediaCorrectnessTests)
     if(WIN32)
         set_tests_properties(ClipCutterTests PROPERTIES
             ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
         )
         set_tests_properties(ClipCutterExportTests PROPERTIES
+            ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+        )
+        set_tests_properties(ClipCutterMediaCorrectnessTests PROPERTIES
             ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
         )
     endif()

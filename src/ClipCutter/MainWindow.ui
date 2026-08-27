@@ -295,10 +295,24 @@
          <property name="placeholderText">
           <string>Select quality preset</string>
          </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="checkboxCopyMetadata">
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="collisionLabel">
+        <property name="text">
+         <string>Existing files:</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="collisionCombo">
+        <property name="toolTip">
+         <string>Resolve all output conflicts before the export queue starts.</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkboxCopyMetadata">
          <property name="maximumSize">
           <size>
            <width>110</width>

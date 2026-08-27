@@ -118,6 +118,7 @@ Clip ClipImporter::MakeClip(const QFileInfo& fileInfo, const QString& sourcePath
     Clip clip;
     clip.SourcePath = sourcePath;
     clip.OriginalFileName = fileInfo.fileName();
+    clip.MediaInformation.ProbeStatus = EProbeStatus::Probing;
 
     Segment segment;
     segment.OutputBaseName = fileInfo.completeBaseName();

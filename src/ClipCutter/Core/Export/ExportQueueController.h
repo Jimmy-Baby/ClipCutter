@@ -7,6 +7,7 @@
 #include "Core/Export/FfmpegProgressParser.h"
 #include "Core/Export/MetadataService.h"
 #include "Core/Export/ProcessRunner.h"
+#include "Core/Export/OutputVerifier.h"
 
 #include <QQueue>
 #include <QSet>
@@ -28,7 +29,8 @@ class ExportQueueController final : public QObject
 public:
     explicit ExportQueueController(QObject* parent = nullptr);
     ExportQueueController(FfmpegCommandBuilder commandBuilder, ProcessRunnerFactory processRunnerFactory,
-                          std::unique_ptr<MetadataService> metadataService, QObject* parent = nullptr);
+                          std::unique_ptr<MetadataService> metadataService,
+                          std::unique_ptr<OutputVerifier> outputVerifier = {}, QObject* parent = nullptr);
 
     bool SetJobs(QVector<ExportJob> jobs);
     bool Start();
@@ -63,6 +65,8 @@ private:
         QByteArray StandardOutput;
         QByteArray StandardError;
         std::optional<ExportResult> Result;
+        QString MetadataWarning;
+        QString VerificationDiagnostics;
     };
 
     static constexpr qsizetype KMaximumRetainedLogBytes = 1024 * 1024;
@@ -81,7 +85,6 @@ private:
     void UpdateTotalProgress();
     void CancelPendingEntry(JobEntry& entry);
     bool SetState(JobEntry& entry, EExportState state);
-    bool PromoteTemporaryOutput(const ExportJob& job, QString& error) const;
     int IndexForJob(const QUuid& jobId) const;
     double EntryWeight(const JobEntry& entry, double fallbackWeight) const;
     static void AppendRetained(QByteArray& destination, const QByteArray& data);
@@ -92,6 +95,7 @@ private:
     FfmpegCommandBuilder CommandBuilder_;
     ProcessRunnerFactory ProcessRunnerFactory_;
     std::unique_ptr<MetadataService> MetadataService_;
+    std::unique_ptr<OutputVerifier> OutputVerifier_;
     QTimer TerminationTimer_;
     ProcessRunner* ActiveRunner_ = nullptr;
     int ActiveIndex_ = -1;

@@ -4,6 +4,9 @@
 #include "App/Models/ClipQueueModel.h"
 #include "Core/Export/ExportQueueController.h"
 #include "Core/Import/ClipImporter.h"
+#include "Core/Media/MediaProbe.h"
+#include "Core/Diagnostics/StartupDiagnostics.h"
+#include "Core/Export/OutputPathPlanner.h"
 
 #include <QDir>
 #include <QHash>
@@ -70,8 +73,12 @@ private:
     void AddKeyword();
     void RemoveKeyword();
     void UseKeyword();
-    QVector<ExportJob> BuildExportJobs(const QVector<ExportSegment>& segments) const;
-    EEncodingQuality SelectedEncodingQuality() const;
+    QVector<ExportJob> BuildExportJobs(const QVector<ExportSegment>& segments,
+                                       const QVector<PlannedOutput>& outputs, ECollisionPolicy policy) const;
+    QString SelectedProfileId() const;
+    ECollisionPolicy SelectedCollisionPolicy() const;
+    void OnProbeCompleted(const MediaProbeResult& result);
+    void OnDiagnosticsCompleted(const StartupDiagnosticsResult& result);
     QUuid SegmentIdForJob(const QUuid& jobId) const;
     Clip* CurrentClip();
     const Clip* CurrentClip() const;
@@ -87,11 +94,14 @@ private:
     ClipQueueModel* QueueModel_;
     ClipImporter ClipImporter_;
     ExportQueueController* ExportController_;
+    MediaProbe* MediaProbe_;
+    StartupDiagnostics* StartupDiagnostics_;
     QHash<QUuid, QUuid> JobToSegmentId_;
     QUuid CurrentClipId_;
     QUuid CurrentSegmentId_;
     QDir VideoDirectory_;
     QString OutputDirectory_;
+    bool DiagnosticsComplete_ = false;
 
     struct UserSettings
     {

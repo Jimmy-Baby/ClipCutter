@@ -24,6 +24,7 @@ struct Segment
     std::optional<double> ExportProgress;
     QString ExportLog;
     bool ExportLocked = false;
+    bool TrimRangeUserEdited = false;
 
     QString OutputFileName() const;
 };

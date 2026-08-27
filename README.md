@@ -36,7 +36,7 @@ Here's how you can use it:
 - CMake 3.22 or later and Ninja available on `PATH`.
 - Visual Studio 2022 or Build Tools for Visual Studio 2022 with **Desktop development with C++** and a Windows SDK. Run commands from an x64 Native Tools or Developer PowerShell so MSVC is available.
 - Qt 6.5 or later with Core, Gui, Widgets, Multimedia, MultimediaWidgets, and Test. Qt 6.11.2 with the 64-bit MSVC 2022 kit is the tested configuration.
-- A Windows FFmpeg executable for running the application. FFmpeg is not needed to configure, compile, or run the pure unit tests.
+- FFmpeg and ffprobe for running the application. Neither binary is needed for pure unit tests.
 
 Qt is not stored at a fixed repository path. Let CMake find it through `CMAKE_PREFIX_PATH` or `Qt6_DIR`. For example, replace the example path below with the root of your compiler-matched Qt kit:
 
@@ -64,10 +64,11 @@ Set-Location build\debug
 ctest --output-on-failure
 ```
 
-To run a local build, place `ffmpeg.exe` beside the generated `ClipCutter.exe`, make the matching Qt `bin` directory available on `PATH`, then start the executable:
+To run a local build, place `ffmpeg.exe` and `ffprobe.exe` beside the generated `ClipCutter.exe` (or make both available on `PATH`), make the matching Qt `bin` directory available on `PATH`, then start the executable:
 
 ```powershell
 Copy-Item C:\path\to\ffmpeg.exe build\debug\
+Copy-Item C:\path\to\ffprobe.exe build\debug\
 $env:Path = "C:\path\to\Qt\6.11.2\msvc2022_64\bin;$env:Path"
 .\build\debug\ClipCutter.exe
 ```
@@ -80,6 +81,7 @@ Release archives already include FFmpeg and the required Qt runtime files. Local
 - `ClipCutter`: `Main.cpp`, the main window/UI form, and Qt resources.
 - `ClipCutterTests`: Qt Test regression tests registered with CTest.
 - `ClipCutterExportTests`: deterministic export-engine tests using an injected process runner.
+- `ClipCutterMediaCorrectnessTests`: probe, profile, path, finalisation, metadata, and verification tests.
 
 CMake generates UIC, MOC, and RCC output inside the selected build directory. Generated headers such as `ui_MainWindow.h` must never be generated in or committed from the source tree.
 
@@ -103,7 +105,24 @@ Failed/Cancelled -> Pending (explicit retry only)
 
 Invalid transitions and duplicate process-completion notifications are ignored. An ordinary failure completes that item and advances the queue. Queue completion reports succeeded, failed, skipped, and cancelled counts rather than treating a partial failure as success.
 
-FFmpeg writes to a job-specific temporary file in the destination directory. Successful output enters `Finalising`, replaces the requested final path, and optionally copies source timestamps through `MetadataService`. Cancellation marks unstarted jobs without launching them, asks the active process to terminate, and uses a timer to force a kill if needed. Incomplete temporary output is removed. Failed and cancelled jobs retain their immutable command settings and are retried only through an explicit user action.
+FFmpeg writes to a unique `.clipcutter-<uuid>.part.<media-extension>` file in the destination directory. A zero exit is not sufficient: ffprobe must confirm a non-empty file, expected streams, and duration within 350 ms for accurate profiles or 2500 ms for keyframe-aligned Fast Copy. Only then is the temporary file atomically promoted. Windows replacement uses `ReplaceFileW`, so an existing final file remains intact until the replacement is complete. Failed and cancelled jobs remove their temporary output; stale ClipCutter temporary files are removed only after seven days.
+
+Source inspection also uses asynchronous `QProcess` ffprobe calls. `MediaProbe` parses JSON format/stream data, limits concurrency to two by default, caches results by canonical path/size/modification time, and tags results with the stable clip ID. The model rejects results for removed or replaced clips. Probe failures remain in the queue with diagnostic text; unprobed, failed, unknown-duration, and video-less entries cannot export.
+
+Output behavior is defined centrally by stable profiles:
+
+| ID | UI name | Trim | Container/codecs | Settings |
+| --- | --- | --- | --- | --- |
+| `fast-copy` | Fast Copy | Keyframe/seek-aligned | Source container, stream copy | No re-encode |
+| `accurate-balanced` | Accurate Balanced | Accurate re-encode | MP4, H.264, AAC | CRF 23, medium |
+| `accurate-high-quality` | Accurate High Quality | Accurate re-encode | MP4, H.264, AAC | CRF 18, slow |
+| `compact` | Compact | Accurate re-encode | MP4, H.264, AAC | CRF 28, fast |
+
+Preflight separates the editable base name, profile-derived extension, final path, and temporary path. It rejects empty/invalid/reserved Windows names, trailing periods/spaces, duplicate batch outputs, missing/unwritable directories, and resolves existing files with Ask, Auto Rename, Skip, or Overwrite before launching FFmpeg. Auto Rename deterministically uses `name (2).ext`, `name (3).ext`, and so on.
+
+`MetadataService` returns structured source-open/read and output-open/write errors and uses Unicode Win32 APIs plus RAII handles. Media export and metadata preservation have separate semantics: a verified, finalised media file is `Succeeded` with a metadata warning when timestamp copying fails. Verification failures are export failures; FFmpeg and ffprobe diagnostics remain available in the item log.
+
+Startup diagnostics asynchronously check both binary versions plus `libx264`, AAC, and MP4 capabilities. Unsupported profiles are disabled with a reason.
 
 Progress is read incrementally from `-progress pipe:1`. The parser retains partial lines between reads and accepts `out_time_us`, `out_time_ms`, and `out_time`. Known segment durations produce clamped item progress and duration-weighted total progress; unknown durations are indeterminate at item level and use an average-duration/job-count fallback for the total. `progress=end` updates progress only—success still requires a normal zero-code process exit.
 
@@ -115,14 +134,13 @@ cmake --build --preset debug
 ctest --preset debug
 ```
 
-To enable the optional integration case, set `CLIPCUTTER_TEST_FFMPEG` to an FFmpeg executable before running `ClipCutterExportTests` or CTest:
+To enable all optional integration cases, set both executable paths before CTest. The integration tests skip cleanly when they are unset:
 
 ```powershell
 $env:CLIPCUTTER_TEST_FFMPEG = "C:\path\to\ffmpeg.exe"
+$env:CLIPCUTTER_TEST_FFPROBE = "C:\path\to\ffprobe.exe"
 ctest --preset debug
 ```
-
-The existing Copy/Lowest/Low/Medium/High/Highest presets and source-compatible output extensions are intentionally retained. Output-profile redesign, advanced container/codec selection, ffprobe inspection, persistence, and multi-segment editing are deferred.
 
 ## Contributing
 

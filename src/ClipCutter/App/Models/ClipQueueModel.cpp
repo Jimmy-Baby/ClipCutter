@@ -1,6 +1,7 @@
 #include "App/Models/ClipQueueModel.h"
 
 #include "Utility.h"
+#include "Core/Export/OutputProfile.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -78,6 +79,8 @@ QVariant ClipQueueModel::data(const QModelIndex& index, const int role) const
     case ExportLogRole:
         return segment.ExportLog;
     case Qt::ToolTipRole:
+        if (clip.MediaInformation.ProbeStatus == EProbeStatus::Failed)
+            return clip.MediaInformation.ProbeError.value_or(QStringLiteral("Media probing failed."));
         return segment.ExportLog.isEmpty() ? QVariant() : QVariant(segment.ExportLog);
     case Qt::CheckStateRole:
         return index.column() == SkipColumn ? QVariant::fromValue(segment.Skipped ? Qt::Checked : Qt::Unchecked)
@@ -100,7 +103,7 @@ QVariant ClipQueueModel::data(const QModelIndex& index, const int role) const
         case DurationColumn:
             return TimeText(segment.Range.Duration());
         case StatusColumn:
-            return StatusText(segment);
+            return StatusText(clip, segment);
         default:
             return {};
         }
@@ -441,9 +444,9 @@ void ClipQueueModel::UpdateAllSkipStates(const bool skipped)
 bool ClipQueueModel::UpdateOutputBaseName(const QUuid& segmentId, const QString& outputBaseName)
 {
     Segment* segment = FindSegment(segmentId);
-    const QString normalized = outputBaseName.trimmed();
+    const QString normalized = outputBaseName;
 
-    if (segment == nullptr || normalized.isEmpty())
+    if (segment == nullptr)
     {
         return false;
     }
@@ -464,10 +467,10 @@ bool ClipQueueModel::UpdateOutputBaseName(const QUuid& segmentId, const QString&
 bool ClipQueueModel::UpdateOutputName(const QUuid& segmentId, const QString& outputFileName)
 {
     Segment* segment = FindSegment(segmentId);
-    const QString normalized = outputFileName.trimmed();
+    const QString normalized = outputFileName;
     const QFileInfo fileInfo(normalized);
 
-    if (segment == nullptr || normalized.isEmpty())
+    if (segment == nullptr)
     {
         return false;
     }
@@ -475,11 +478,6 @@ bool ClipQueueModel::UpdateOutputName(const QUuid& segmentId, const QString& out
     const QString baseName = fileInfo.suffix().isEmpty() ? normalized : fileInfo.completeBaseName();
     const QString extension =
         fileInfo.suffix().isEmpty() ? segment->OutputExtension : QStringLiteral(".") + fileInfo.suffix();
-
-    if (baseName.isEmpty())
-    {
-        return false;
-    }
 
     if (segment->OutputBaseName == baseName && segment->OutputExtension == extension)
     {
@@ -511,6 +509,7 @@ bool ClipQueueModel::UpdateTrimRange(const QUuid& segmentId, const TimeRange& ra
                 return false;
             }
 
+            segment.TrimRangeUserEdited = true;
             if (segment.Range == range)
             {
                 return true;
@@ -562,9 +561,8 @@ bool ClipQueueModel::UpdateMediaDuration(const QUuid& clipId, const std::chrono:
 
     for (Segment& segment : clip->Segments)
     {
-        segment.Range = segment.Range.Duration().count() == 0
-                            ? *TimeRange::Create(std::chrono::milliseconds{0}, duration)
-                            : TimeRange::Clamped(segment.Range.Start(), segment.Range.End(), duration);
+        if (!segment.TrimRangeUserEdited && segment.Range.Duration().count() == 0)
+            segment.Range = *TimeRange::Create(std::chrono::milliseconds{0}, duration);
     }
 
     const int firstRow = RowForClip(clipId);
@@ -574,6 +572,26 @@ bool ClipQueueModel::UpdateMediaDuration(const QUuid& clipId, const std::chrono:
         emit dataChanged(index(firstRow, StartColumn), index(firstRow + clip->Segments.size() - 1, StatusColumn));
     }
 
+    return true;
+}
+
+bool ClipQueueModel::UpdateMediaInfo(const QUuid& clipId, const QString& expectedSourcePath, const MediaInfo& info)
+{
+    Clip* clip = FindClip(clipId);
+    if (clip == nullptr || QDir::cleanPath(clip->SourcePath) != QDir::cleanPath(expectedSourcePath))
+        return false;
+    clip->MediaInformation = info;
+    if (info.ProbeStatus == EProbeStatus::Ready && info.Duration.has_value())
+    {
+        for (Segment& segment : clip->Segments)
+        {
+            if (!segment.TrimRangeUserEdited && segment.Range.Duration().count() == 0)
+                segment.Range = *TimeRange::Create(std::chrono::milliseconds{0}, *info.Duration);
+        }
+    }
+    const int firstRow = RowForClip(clipId);
+    if (firstRow >= 0)
+        emit dataChanged(index(firstRow, StartColumn), index(firstRow + clip->Segments.size() - 1, StatusColumn));
     return true;
 }
 
@@ -633,6 +651,8 @@ void ClipQueueModel::ClearPrefixFromAll(const QString& prefix)
 
 void ClipQueueModel::UpdateAllExportProfiles(const QString& profileId)
 {
+    const OutputProfile* profile = OutputProfiles::Find(profileId);
+    if (profile == nullptr) return;
     bool changed = false;
 
     for (Clip& clip : Clips_)
@@ -641,6 +661,7 @@ void ClipQueueModel::UpdateAllExportProfiles(const QString& profileId)
         {
             changed = changed || segment.ExportProfileId != profileId;
             segment.ExportProfileId = profileId;
+            segment.OutputExtension = OutputProfiles::ExtensionFor(*profile, clip.SourcePath);
         }
     }
 
@@ -773,6 +794,14 @@ QVector<ExportSegment> ClipQueueModel::ExportSegments(QStringList* errors) const
         {
             QString error;
 
+            if (!segment.Skipped && !clip.MediaInformation.IsReliableForExport())
+            {
+                error = clip.MediaInformation.ProbeStatus == EProbeStatus::Failed
+                            ? clip.MediaInformation.ProbeError.value_or(QStringLiteral("Media probing failed."))
+                            : QStringLiteral("Media inspection has not completed with a reliable duration and video stream.");
+                if (errors != nullptr) errors->append(QStringLiteral("%1: %2").arg(clip.OriginalFileName, error));
+                continue;
+            }
             if (!segment.Skipped && !segment.Range.IsValid(clip.MediaInformation.Duration, true, &error))
             {
                 if (errors != nullptr)
@@ -788,9 +817,12 @@ QVector<ExportSegment> ClipQueueModel::ExportSegments(QStringList* errors) const
                 clip.Id,
                 segment.Id,
                 clip.SourcePath,
+                segment.Prefix.value_or(QString()) + segment.OutputBaseName,
+                segment.OutputExtension,
                 segment.OutputFileName(),
                 segment.Range,
                 segment.ExportProfileId,
+                clip.MediaInformation,
                 segment.Skipped
             };
             result.append(std::move(exportSegment));
@@ -883,8 +915,11 @@ ClipQueueModel::ConstRowRef ClipQueueModel::GetRowRef(const int row) const
     return {};
 }
 
-QString ClipQueueModel::StatusText(const Segment& segment)
+QString ClipQueueModel::StatusText(const Clip& clip, const Segment& segment)
 {
+    if (clip.MediaInformation.ProbeStatus == EProbeStatus::Probing) return QStringLiteral("Probing…");
+    if (clip.MediaInformation.ProbeStatus == EProbeStatus::Failed) return QStringLiteral("Probe failed — see details");
+    if (clip.MediaInformation.ProbeStatus == EProbeStatus::NotProbed) return QStringLiteral("Awaiting probe");
     const QString state = ExportStateText(segment.ExportState);
 
     if (!segment.ExportProgress.has_value())

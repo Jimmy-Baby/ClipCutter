@@ -23,6 +23,9 @@ ClipCutter::Clip MakeClip(const QString& name, qint64 duration = 10'000)
     clip.SourcePath = QStringLiteral("C:/media/%1").arg(name);
     clip.OriginalFileName = name;
     clip.MediaInformation.Duration = std::chrono::milliseconds{duration};
+    clip.MediaInformation.HasVideo = true;
+    clip.MediaInformation.HasAudio = false;
+    clip.MediaInformation.VideoStreamIndices.append(0);
     clip.MediaInformation.ProbeStatus = ClipCutter::EProbeStatus::Ready;
     ClipCutter::Segment segment;
     const QFileInfo info(name);
@@ -280,7 +283,7 @@ void RegressionTests::ModelExportSnapshotAndSkipAll()
     ClipCutter::ClipQueueModel model;
     model.AddClip(MakeClip(QStringLiteral("one.mp4")));
     model.AddClip(MakeClip(QStringLiteral("two.mp4")));
-    model.UpdateAllExportProfiles(QStringLiteral("high"));
+    model.UpdateAllExportProfiles(QStringLiteral("accurate-high-quality"));
     QVERIFY(model.ApplyPrefix(model.SegmentIdAtRow(0), QStringLiteral("cut_")));
 
     QStringList errors;
@@ -288,7 +291,7 @@ void RegressionTests::ModelExportSnapshotAndSkipAll()
     QVERIFY(errors.isEmpty());
     QCOMPARE(exports.size(), 2);
     QCOMPARE(exports.constFirst().OutputFileName, QStringLiteral("cut_one.mp4"));
-    QCOMPARE(exports.constFirst().ExportProfileId, QStringLiteral("high"));
+    QCOMPARE(exports.constFirst().ExportProfileId, QStringLiteral("accurate-high-quality"));
 
     model.UpdateAllSkipStates(true);
     QVERIFY(model.FindSegment(model.SegmentIdAtRow(0))->Skipped);

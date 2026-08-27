@@ -5,73 +5,82 @@
 
 #ifdef Q_OS_WIN
 #include <Windows.h>
+
+#include <utility>
 #endif
 
 namespace ClipCutter
 {
-bool PlatformMetadataService::CopyFileTimestamps(const QString& sourcePath, const QString& outputPath, QString& error)
+MetadataResult PlatformMetadataService::CopyFileTimestamps(const QString& sourcePath, const QString& outputPath)
 {
-    error.clear();
-
 #ifdef Q_OS_WIN
-    FILETIME creationTime;
-    FILETIME accessedTime;
-    FILETIME modifiedTime;
-    const HANDLE source = CreateFileW(reinterpret_cast<LPCWSTR>(sourcePath.utf16()), FILE_READ_ATTRIBUTES,
-                                      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                                      FILE_ATTRIBUTE_NORMAL, nullptr);
-
-    if (source == INVALID_HANDLE_VALUE)
+    class Handle final
     {
-        error = QStringLiteral("Unable to open the source file for metadata. Windows error: %1").arg(GetLastError());
+    public:
+        explicit Handle(HANDLE value) noexcept : Value_(value) {}
+        ~Handle() { if (Value_ != INVALID_HANDLE_VALUE && Value_ != nullptr) CloseHandle(Value_); }
+        Handle(const Handle&) = delete;
+        Handle& operator=(const Handle&) = delete;
+        HANDLE Get() const noexcept { return Value_; }
+        bool IsValid() const noexcept { return Value_ != INVALID_HANDLE_VALUE && Value_ != nullptr; }
+    private:
+        HANDLE Value_ = INVALID_HANDLE_VALUE;
+    };
 
-        return false;
+    FILETIME creationTime{};
+    FILETIME accessedTime{};
+    FILETIME modifiedTime{};
+    const Handle source(CreateFileW(reinterpret_cast<LPCWSTR>(sourcePath.utf16()), FILE_READ_ATTRIBUTES,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                    FILE_ATTRIBUTE_NORMAL, nullptr));
+
+    if (!source.IsValid())
+    {
+        const DWORD code = GetLastError();
+        return {false, EMetadataError::SourceOpenFailed,
+                QStringLiteral("Unable to open the source file for metadata (Windows error %1).").arg(code), code};
     }
 
-    const bool readSucceeded = GetFileTime(source, &creationTime, &accessedTime, &modifiedTime) != FALSE;
-    CloseHandle(source);
-
-    if (!readSucceeded)
+    if (GetFileTime(source.Get(), &creationTime, &accessedTime, &modifiedTime) == FALSE)
     {
-        error = QStringLiteral("Unable to read the source file timestamps. Windows error: %1").arg(GetLastError());
-
-        return false;
+        const DWORD code = GetLastError();
+        return {false, EMetadataError::SourceReadFailed,
+                QStringLiteral("Unable to read source timestamps (Windows error %1).").arg(code), code};
     }
 
-    const HANDLE output = CreateFileW(reinterpret_cast<LPCWSTR>(outputPath.utf16()), FILE_WRITE_ATTRIBUTES,
-                                      FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    const Handle output(CreateFileW(reinterpret_cast<LPCWSTR>(outputPath.utf16()), FILE_WRITE_ATTRIBUTES,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                    FILE_ATTRIBUTE_NORMAL, nullptr));
 
-    if (output == INVALID_HANDLE_VALUE)
+    if (!output.IsValid())
     {
-        error = QStringLiteral("Unable to open the output file for metadata. Windows error: %1").arg(GetLastError());
-
-        return false;
+        const DWORD code = GetLastError();
+        return {false, EMetadataError::OutputOpenFailed,
+                QStringLiteral("Unable to open the output for metadata (Windows error %1).").arg(code), code};
     }
 
-    const bool writeSucceeded = SetFileTime(output, &creationTime, &accessedTime, &modifiedTime) != FALSE;
-    CloseHandle(output);
-
-    if (!writeSucceeded)
+    if (SetFileTime(output.Get(), &creationTime, &accessedTime, &modifiedTime) == FALSE)
     {
-        error = QStringLiteral("Unable to set the output file timestamps. Windows error: %1").arg(GetLastError());
-
-        return false;
+        const DWORD code = GetLastError();
+        return {false, EMetadataError::OutputWriteFailed,
+                QStringLiteral("Unable to set output timestamps (Windows error %1).").arg(code), code};
     }
 
-    return true;
+    return {true, EMetadataError::None, {}, 0};
 #else
     QFile source(sourcePath);
     QFile output(outputPath);
     const QDateTime modifiedTime = source.fileTime(QFileDevice::FileModificationTime);
 
-    if (!modifiedTime.isValid() || !output.setFileTime(modifiedTime, QFileDevice::FileModificationTime))
+    if (!modifiedTime.isValid())
     {
-        error = QStringLiteral("Unable to copy the output file modification time.");
-
-        return false;
+        return {false, EMetadataError::SourceReadFailed,
+                QStringLiteral("Unable to read the source file modification time."), 0};
     }
-
-    return true;
+    if (!output.setFileTime(modifiedTime, QFileDevice::FileModificationTime))
+        return {false, EMetadataError::OutputWriteFailed,
+                QStringLiteral("Unable to set the output file modification time."), 0};
+    return {true, EMetadataError::None, {}, 0};
 #endif
 }
 } // namespace ClipCutter
