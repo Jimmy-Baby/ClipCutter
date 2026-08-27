@@ -4,6 +4,6 @@ namespace ClipCutter
 {
 QString Segment::OutputFileName() const
 {
-    return Prefix.value_or(QString()) + OutputBaseName + OutputExtension;
+    return (NamingTemplatePattern.has_value() ? QString() : Prefix.value_or(QString())) + OutputBaseName + OutputExtension;
 }
 } // namespace ClipCutter

@@ -2,6 +2,7 @@
 
 #include "Utility.h"
 #include "Core/Export/OutputProfile.h"
+#include "Core/Naming/NamingTemplate.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -78,6 +79,10 @@ QVariant ClipQueueModel::data(const QModelIndex& index, const int role) const
         return segment.ExportProgress.has_value() ? QVariant(*segment.ExportProgress) : QVariant();
     case ExportLogRole:
         return segment.ExportLog;
+    case PrefixRole:
+        return segment.Prefix.value_or(QString());
+    case NamingTemplateRole:
+        return segment.NamingTemplatePattern.value_or(QString());
     case Qt::ToolTipRole:
         if (clip.MediaInformation.ProbeStatus == EProbeStatus::Failed)
             return clip.MediaInformation.ProbeError.value_or(QStringLiteral("Media probing failed."));
@@ -208,6 +213,9 @@ QHash<int, QByteArray> ClipQueueModel::roleNames() const
     names.insert(ExportStateRole, "exportState");
     names.insert(ExportProgressRole, "exportProgress");
     names.insert(ExportLogRole, "exportLog");
+    names.insert(PrefixRole, "prefix");
+    names.insert(NamingTemplateRole, "namingTemplate");
+    names.insert(MediaProbeRole, "mediaProbe");
 
     return names;
 }
@@ -251,6 +259,13 @@ void ClipQueueModel::AddClips(QVector<Clip> clips)
     {
         endInsertRows();
     }
+}
+
+void ClipQueueModel::ReplaceClips(std::vector<Clip> clips)
+{
+    beginResetModel();
+    Clips_ = std::move(clips);
+    endResetModel();
 }
 
 void ClipQueueModel::ClearClips()
@@ -441,6 +456,32 @@ void ClipQueueModel::UpdateAllSkipStates(const bool skipped)
     }
 }
 
+bool ClipQueueModel::UpdateSkipStates(const QSet<QUuid>& segmentIds, const bool skipped)
+{
+    bool found = segmentIds.isEmpty();
+    for (int row = 0; row < rowCount(); ++row)
+    {
+        const QUuid id = SegmentIdAtRow(row);
+        if (!segmentIds.isEmpty() && !segmentIds.contains(id)) continue;
+        found = true;
+        UpdateSkipState(id, skipped);
+    }
+    return found;
+}
+
+bool ClipQueueModel::InvertSkipStates(const QSet<QUuid>& segmentIds)
+{
+    bool found = segmentIds.isEmpty();
+    for (int row = 0; row < rowCount(); ++row)
+    {
+        const QUuid id = SegmentIdAtRow(row);
+        if (!segmentIds.isEmpty() && !segmentIds.contains(id)) continue;
+        Segment* segment = FindSegment(id);
+        if (segment != nullptr) { found = true; UpdateSkipState(id, !segment->Skipped); }
+    }
+    return found;
+}
+
 bool ClipQueueModel::UpdateOutputBaseName(const QUuid& segmentId, const QString& outputBaseName)
 {
     Segment* segment = FindSegment(segmentId);
@@ -476,8 +517,7 @@ bool ClipQueueModel::UpdateOutputName(const QUuid& segmentId, const QString& out
     }
 
     const QString baseName = fileInfo.suffix().isEmpty() ? normalized : fileInfo.completeBaseName();
-    const QString extension =
-        fileInfo.suffix().isEmpty() ? segment->OutputExtension : QStringLiteral(".") + fileInfo.suffix();
+    const QString extension = segment->OutputExtension;
 
     if (segment->OutputBaseName == baseName && segment->OutputExtension == extension)
     {
@@ -569,7 +609,8 @@ bool ClipQueueModel::UpdateMediaDuration(const QUuid& clipId, const std::chrono:
 
     if (firstRow >= 0)
     {
-        emit dataChanged(index(firstRow, StartColumn), index(firstRow + clip->Segments.size() - 1, StatusColumn));
+        emit dataChanged(index(firstRow, StartColumn), index(firstRow + clip->Segments.size() - 1, StatusColumn),
+                         {Qt::DisplayRole, MediaProbeRole});
     }
 
     return true;
@@ -591,7 +632,45 @@ bool ClipQueueModel::UpdateMediaInfo(const QUuid& clipId, const QString& expecte
     }
     const int firstRow = RowForClip(clipId);
     if (firstRow >= 0)
-        emit dataChanged(index(firstRow, StartColumn), index(firstRow + clip->Segments.size() - 1, StatusColumn));
+        emit dataChanged(index(firstRow, StartColumn), index(firstRow + clip->Segments.size() - 1, StatusColumn),
+                         {Qt::DisplayRole, MediaProbeRole});
+    return true;
+}
+
+bool ClipQueueModel::RelinkClipSource(const QUuid& clipId, const QString& replacementPath, QString* error)
+{
+    const QFileInfo replacement(replacementPath);
+    if (!replacement.exists() || !replacement.isFile())
+    {
+        if (error != nullptr) *error = QStringLiteral("Replacement source does not exist.");
+        return false;
+    }
+    const QString canonical = QDir::cleanPath(replacement.canonicalFilePath().isEmpty()
+                                                 ? replacement.absoluteFilePath() : replacement.canonicalFilePath());
+    for (const Clip& candidate : Clips_)
+    {
+        if (candidate.Id != clipId && QDir::cleanPath(candidate.SourcePath).compare(canonical, Qt::CaseInsensitive) == 0)
+        {
+            if (error != nullptr) *error = QStringLiteral("Replacement source is already in the queue.");
+            return false;
+        }
+    }
+    Clip* clip = FindClip(clipId);
+    if (clip == nullptr)
+    {
+        if (error != nullptr) *error = QStringLiteral("Clip was not found.");
+        return false;
+    }
+    clip->SourcePath = canonical;
+    clip->OriginalFileName = replacement.fileName();
+    clip->MediaInformation = {};
+    clip->MediaInformation.ProbeStatus = EProbeStatus::Probing;
+    for (Segment& segment : clip->Segments)
+        if (const OutputProfile* profile = OutputProfiles::Find(segment.ExportProfileId))
+            segment.OutputExtension = OutputProfiles::ExtensionFor(*profile, canonical);
+    const int first = RowForClip(clipId);
+    if (first >= 0)
+        emit dataChanged(index(first, SourceNameColumn), index(first + clip->Segments.size() - 1, StatusColumn));
     return true;
 }
 
@@ -631,6 +710,113 @@ bool ClipQueueModel::ClearPrefix(const QUuid& segmentId)
     emit dataChanged(index(row, OutputNameColumn), index(row, OutputNameColumn), {Qt::DisplayRole, OutputFileNameRole});
 
     return true;
+}
+
+bool ClipQueueModel::ApplyPrefixTo(const QSet<QUuid>& segmentIds, const QString& prefix)
+{
+    bool found = segmentIds.isEmpty();
+    for (int row = 0; row < rowCount(); ++row)
+    {
+        const QUuid id = SegmentIdAtRow(row);
+        if (!segmentIds.isEmpty() && !segmentIds.contains(id)) continue;
+        found = ApplyPrefix(id, prefix) || found;
+    }
+    return found;
+}
+
+bool ClipQueueModel::ClearPrefixes(const QSet<QUuid>& segmentIds)
+{
+    bool found = segmentIds.isEmpty();
+    for (int row = 0; row < rowCount(); ++row)
+    {
+        const QUuid id = SegmentIdAtRow(row);
+        if (!segmentIds.isEmpty() && !segmentIds.contains(id)) continue;
+        found = ClearPrefix(id) || found;
+    }
+    return found;
+}
+
+bool ClipQueueModel::ApplyNamingTemplate(const QSet<QUuid>& segmentIds, const QString& pattern,
+                                         const QDate& date, QString* error)
+{
+    QVector<QUuid> ids;
+    QVector<NamingTemplateContext> contexts;
+    for (int row = 0; row < rowCount(); ++row)
+    {
+        const QUuid id = SegmentIdAtRow(row);
+        if (!segmentIds.isEmpty() && !segmentIds.contains(id)) continue;
+        const RowRef ref = GetRowRef(row);
+        NamingTemplateContext context;
+        context.Original = QFileInfo(ref.ClipValue->OriginalFileName).completeBaseName();
+        context.Prefix = ref.SegmentValue->Prefix.value_or(QString());
+        context.Index = row + 1;
+        context.Date = date;
+        context.Profile = ref.SegmentValue->ExportProfileId;
+        int segmentNumber = 1;
+        for (const Segment& candidate : ref.ClipValue->Segments)
+        {
+            if (candidate.Id == id) break;
+            ++segmentNumber;
+        }
+        context.Segment = segmentNumber;
+        ids.append(id);
+        contexts.append(context);
+    }
+    const NamingBatchResult rendered = NamingTemplate::RenderBatch(pattern, contexts);
+    if (!rendered.IsValid())
+    {
+        if (error != nullptr)
+        {
+            QStringList messages = rendered.Errors;
+            if (!rendered.Duplicates.isEmpty()) messages.append(QStringLiteral("Duplicate rendered outputs: %1").arg(rendered.Duplicates.join(QStringLiteral(", "))));
+            *error = messages.join(QLatin1Char('\n'));
+        }
+        return false;
+    }
+    for (int index = 0; index < ids.size(); ++index)
+    {
+        Segment* segment = FindSegment(ids.at(index));
+        segment->NamingTemplatePattern = pattern;
+        UpdateOutputBaseName(ids.at(index), rendered.Values.at(index));
+    }
+    return true;
+}
+
+bool ClipQueueModel::ApplyExportProfile(const QSet<QUuid>& segmentIds, const QString& profileId)
+{
+    const OutputProfile* profile = OutputProfiles::Find(profileId);
+    if (profile == nullptr) return false;
+    bool found = segmentIds.isEmpty();
+    for (int row = 0; row < rowCount(); ++row)
+    {
+        const QUuid id = SegmentIdAtRow(row);
+        if (!segmentIds.isEmpty() && !segmentIds.contains(id)) continue;
+        RowRef ref = GetRowRef(row);
+        found = true;
+        ref.SegmentValue->ExportProfileId = profileId;
+        ref.SegmentValue->OutputExtension = OutputProfiles::ExtensionFor(*profile, ref.ClipValue->SourcePath);
+        emit dataChanged(index(row, OutputNameColumn), index(row, OutputNameColumn),
+                         {Qt::DisplayRole, OutputFileNameRole, ExportProfileRole});
+    }
+    return found;
+}
+
+bool ClipQueueModel::ResetTrimRanges(const QSet<QUuid>& segmentIds)
+{
+    bool found = segmentIds.isEmpty();
+    for (int row = 0; row < rowCount(); ++row)
+    {
+        const QUuid id = SegmentIdAtRow(row);
+        if (!segmentIds.isEmpty() && !segmentIds.contains(id)) continue;
+        RowRef ref = GetRowRef(row);
+        if (!ref.ClipValue->MediaInformation.Duration.has_value()) continue;
+        ref.SegmentValue->Range = *TimeRange::Create(std::chrono::milliseconds{0}, *ref.ClipValue->MediaInformation.Duration);
+        ref.SegmentValue->TrimRangeUserEdited = false;
+        found = true;
+        emit dataChanged(index(row, StartColumn), index(row, DurationColumn),
+                         {Qt::DisplayRole, StartMillisecondsRole, EndMillisecondsRole, DurationMillisecondsRole});
+    }
+    return found;
 }
 
 void ClipQueueModel::ClearPrefixFromAll(const QString& prefix)

@@ -2,11 +2,15 @@
 #define CLIPCUTTER_MAINWINDOW_H
 
 #include "App/Models/ClipQueueModel.h"
+#include "App/Models/ClipQueueFilterModel.h"
+#include "App/Settings/SettingsRepository.h"
 #include "Core/Export/ExportQueueController.h"
 #include "Core/Import/ClipImporter.h"
 #include "Core/Media/MediaProbe.h"
 #include "Core/Diagnostics/StartupDiagnostics.h"
 #include "Core/Export/OutputPathPlanner.h"
+#include "Core/Export/OutputDestination.h"
+#include "Core/Session/SessionRepository.h"
 
 #include <QDir>
 #include <QHash>
@@ -15,10 +19,20 @@
 #include <QUuid>
 
 class QAudioOutput;
+class QCloseEvent;
+class QComboBox;
+class QDragEnterEvent;
+class QDropEvent;
+class QLabel;
+class QLineEdit;
 class QMediaPlayer;
 class QModelIndex;
+class QPushButton;
 class QTreeWidgetItem;
 class QVideoWidget;
+class QCheckBox;
+class QSplitter;
+class QTimer;
 
 QT_BEGIN_NAMESPACE
 namespace Ui
@@ -37,9 +51,21 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override;
 
+protected:
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragLeaveEvent(QDragLeaveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
+    void closeEvent(QCloseEvent* event) override;
+
 private:
     void ActionOpenFolderTriggered();
     void ActionOpenFilesTriggered();
+    void NewSession();
+    void OpenSession();
+    bool SaveSession();
+    bool SaveSessionAs();
+    void ResetSettings();
+    void RelinkMissingSources();
     void ActionPlayPauseTriggered();
     void ActionNextTriggered();
     void ActionSkipTriggered();
@@ -62,7 +88,8 @@ private:
     void UpdateCurrentVideoName();
     void UpdateActionStates();
     void ClearCurrentClipUi();
-    void LoadImportedClips(ImportResult result, const QDir& directory, const QString& preparedOutputDirectory);
+    void LoadImportedClips(ImportResult result, const QDir& directory = {}, const QString& preparedOutputDirectory = {});
+    void ImportPaths(const QStringList& paths);
     void PresentImportMessages(const ImportResult& result);
     void OpenVideo(int row);
     void ProcessClips();
@@ -73,6 +100,18 @@ private:
     void AddKeyword();
     void RemoveKeyword();
     void UseKeyword();
+    void SetupWorkflowUi();
+    void LoadApplicationSettings();
+    void SaveApplicationSettings();
+    void UpdateOutputPreview();
+    void UpdateFilterStatus();
+    void MarkSessionDirty();
+    void AutosaveSession();
+    bool MaybeSaveChanges();
+    bool LoadSessionFile(const QString& path, bool recovery = false);
+    SessionData CurrentSessionData() const;
+    QSet<QUuid> SelectedSegmentIds() const;
+    void ApplyNamingTemplateTo(const QSet<QUuid>& ids);
     QVector<ExportJob> BuildExportJobs(const QVector<ExportSegment>& segments,
                                        const QVector<PlannedOutput>& outputs, ECollisionPolicy policy) const;
     QString SelectedProfileId() const;
@@ -92,6 +131,7 @@ private:
     QIcon PlayIcon_;
     QIcon PauseIcon_;
     ClipQueueModel* QueueModel_;
+    ClipQueueFilterModel* QueueProxy_;
     ClipImporter ClipImporter_;
     ExportQueueController* ExportController_;
     MediaProbe* MediaProbe_;
@@ -100,7 +140,21 @@ private:
     QUuid CurrentClipId_;
     QUuid CurrentSegmentId_;
     QDir VideoDirectory_;
-    QString OutputDirectory_;
+    SettingsRepository SettingsRepository_;
+    ApplicationSettings ApplicationSettings_;
+    SessionDirtyState SessionState_;
+    QTimer* AutosaveTimer_;
+    QSplitter* MainSplitter_ = nullptr;
+    QComboBox* DestinationModeCombo_ = nullptr;
+    QLineEdit* DestinationEdit_ = nullptr;
+    QPushButton* DestinationBrowseButton_ = nullptr;
+    QLabel* OutputPreviewLabel_ = nullptr;
+    QLineEdit* NamingTemplateEdit_ = nullptr;
+    QLabel* NamingPreviewLabel_ = nullptr;
+    QLineEdit* QueueFilterEdit_ = nullptr;
+    QLabel* FilterStatusLabel_ = nullptr;
+    QCheckBox* RecursiveImportCheckBox_ = nullptr;
+    bool LoadingSession_ = false;
     bool DiagnosticsComplete_ = false;
 
     struct UserSettings

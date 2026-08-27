@@ -18,6 +18,7 @@ struct Segment
     QString OutputBaseName;
     QString OutputExtension;
     std::optional<QString> Prefix;
+    std::optional<QString> NamingTemplatePattern;
     bool Skipped = false;
     QString ExportProfileId;
     EExportState ExportState = EExportState::Pending;

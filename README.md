@@ -28,6 +28,104 @@ Here's how you can use it:
 3. Remove clips you do not want to keep by checking the **Skip?** box next to them in the video list.
 4. Choose your output settings, then click **Process Clips**. Processed clips are written to `ClipCutterOutput` in the original clip directory.
 
+### Bulk workflow
+
+- Imports append to the queue. Duplicate canonical source paths are skipped consistently for file dialogs, folders, and drag/drop.
+- Dropped local video files and folders are accepted. Folder recursion is explicit and off by default; unsupported files and non-local URLs are ignored with a status summary.
+- **Beside each source** writes to a configurable child directory of every source directory (`ClipCutterOutput` by default). **Fixed directory** writes the whole batch to one selected directory.
+- The destination and selected-row output path remain visible while editing. Export shows the complete rendered batch before work starts.
+- The preview and queue share a horizontal splitter. Window, toolbar, splitter, volume, workflow, naming, and import preferences restore on restart.
+- Queue filtering searches source/output names, prefixes, status, and keep/skip state without changing the source model or stable IDs.
+- The **Batch** menu applies keep/skip, prefix, template, profile, full-range reset, removal, and queue-clear operations at model level.
+
+### Naming-template syntax
+
+Templates render a base filename only. The selected output profile owns the extension.
+
+| Token | Value |
+| --- | --- |
+| `{original}` | Source filename without its extension |
+| `{prefix}` | Row prefix/keyword, or empty text |
+| `{index}` | One-based queue index |
+| `{index:03}` | One-based queue index padded to three digits; widths 1–64 use the same zero-prefixed form |
+| `{date}` | Current local date as `yyyy-MM-dd` |
+| `{profile}` | Stable output-profile ID |
+| `{segment}` | One-based segment number; reserved now for forward-compatible sessions |
+
+Literal text is copied exactly. Braces cannot be escaped. Unknown tokens, unmatched braces, malformed padding, empty rendered names, reserved Windows device names, and invalid filename characters are rejected. Rendering is deterministic and case-insensitive duplicate base names are reported before export. Default: `{prefix}{original}`.
+
+### Session JSON schema
+
+Session files use UTF-8, atomically written JSON. Schema version `1` is:
+
+```json
+{
+  "schemaVersion": 1,
+  "savedAtUtc": "ISO-8601 timestamp",
+  "recovery": false,
+  "explicitSessionPath": "path or empty",
+  "explicitSaveTimeUtc": "ISO-8601 timestamp or empty",
+  "workflow": {
+    "destinationMode": "source-relative | fixed",
+    "sourceRelativeSubdirectory": "ClipCutterOutput",
+    "fixedDirectory": "path or empty",
+    "outputProfile": "fast-copy",
+    "preserveMetadata": true,
+    "recursiveFolderImport": false,
+    "savedPrefixes": ["best_"],
+    "namingTemplate": "{prefix}{original}"
+  },
+  "clips": [
+    {
+      "id": "UUID",
+      "sourcePath": "relative/path.mp4 or absolute path",
+      "sourcePathKind": "relative | absolute",
+      "originalFileName": "path.mp4",
+      "segments": [
+        {
+          "id": "UUID",
+          "startMs": 0,
+          "endMs": 1000,
+          "trimRangeUserEdited": false,
+          "outputBaseName": "path",
+          "outputExtension": ".mp4",
+          "prefix": "",
+          "namingTemplate": "{prefix}{original}",
+          "skipped": false,
+          "outputProfile": "fast-copy"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Paths inside the session directory tree are stored relative to the session file; unsuitable paths remain absolute. Missing sources remain in queue and can be relinked. Future schema versions are rejected without partially loading them. Runtime export state, process IDs, progress, and FFmpeg logs are never serialized. Autosave writes only to the application recovery file and never overwrites an explicit session file.
+
+### Persisted settings
+
+`SettingsRepository` is the only application-settings access point. Organisation/application identifiers are both `ClipCutter`.
+
+| Key | Default |
+| --- | --- |
+| `window/geometry` | empty |
+| `window/state` | empty |
+| `window/mainSplitter` | empty |
+| `preview/volume` | `100` |
+| `import/lastDirectory` | empty |
+| `import/recursiveFolders` | `false` |
+| `output/destinationMode` | `0` (source-relative) |
+| `output/sourceRelativeSubdirectory` | `ClipCutterOutput` |
+| `output/lastFixedDirectory` | empty |
+| `output/profile` | `fast-copy` |
+| `output/preserveMetadata` | `true` |
+| `naming/savedPrefixes` | empty list |
+| `naming/template` | `{prefix}{original}` |
+| `session/recentFiles` | empty list, maximum 10 |
+| `timeline/autoPlay` | `true` |
+
+Malformed booleans, volume, destination modes, profiles, subdirectory names, templates, and recent-path lists recover to validated defaults. **File > Reset Settings** clears the repository.
+
 ## Building on Windows
 
 ### Prerequisites

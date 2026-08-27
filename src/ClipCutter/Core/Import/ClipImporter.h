@@ -28,6 +28,7 @@ struct ImportOptions
 {
     EDuplicatePolicy DuplicatePolicy = EDuplicatePolicy::Skip;
     QSet<QString> ExistingCanonicalPaths;
+    bool RecursiveDirectories = false;
 };
 
 struct ImportResult
@@ -48,6 +49,7 @@ public:
                         const ImportOptions& options = {}) const;
     ImportResult ImportFiles(const QStringList& files, const ImportOptions& options = {}) const;
     ImportResult ImportDirectory(const QDir& directory, const ImportOptions& options = {}) const;
+    ImportResult ImportPaths(const QStringList& paths, const ImportOptions& options = {}) const;
 
 private:
     static QString CanonicalPath(const QFileInfo& fileInfo);

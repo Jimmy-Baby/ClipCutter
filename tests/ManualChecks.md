@@ -1,17 +1,19 @@
 # Manual regression checks
 
-1. Start ClipCutter with no queue. Confirm clip-dependent toolbar actions, rename, processing, skipping, and **Use Selected** are disabled.
-2. Invoke every toolbar shortcut before loading a clip. Confirm no crash or state change.
-3. Open an empty folder, then a folder containing only unsupported files. Confirm one useful message appears and any existing queue remains unchanged.
-4. Place a regular file named `ClipCutterOutput` beside supported videos and open that folder. Confirm one error includes the full output path and the existing queue remains unchanged.
-5. Add a keyword with surrounding spaces. Confirm it is trimmed. Try blank and differently-cased duplicate keywords; confirm both are rejected.
-6. Select keyword rows without pressing **Use Selected**. Confirm the current clip name does not change.
-7. Use, change, and toggle off a keyword on several clips. Confirm only the current clip has **Yes** and each displayed output name matches its assigned keyword.
-8. Remove a keyword used by multiple clips. Confirm every affected clip returns to its own unprefixed output name.
-9. Select the first and last clips and invoke previous/next shortcuts. Confirm navigation remains in bounds.
-10. Exercise play/pause, stop, skip, set-start, set-end, rename, and keyword controls with a loaded clip.
-11. Export several valid clips. Confirm per-item state/progress, total progress, and the final succeeded count.
-12. Put an invalid input before a valid clip. Confirm the first item fails, its log is inspectable, the later item succeeds, and the summary does not say all work succeeded.
-13. Start a long export, resize and move the window, navigate the queue, and use playback controls. Confirm the UI remains responsive while logs and progress update.
-14. Cancel an active export. Confirm pending items become cancelled, graceful termination is attempted, incomplete temporary output is removed, and the summary reports cancellations.
-15. Retry failed and cancelled items. Confirm original paths, trim range, quality, and metadata settings are reused and progress restarts cleanly.
+1. Start with no queue. Confirm clip actions, rename, processing, skipping, and **Use Selected** are disabled; invoke every toolbar shortcut and confirm no crash.
+2. Import supported videos through **Open File(s)** and **Open Folder**. Repeat the imports and confirm canonical duplicates are skipped with a non-blocking summary while existing rows remain.
+3. Drop supported videos, unsupported files, a local folder, and a web URL. Confirm local videos append, unsupported/duplicate/remote items are summarized, and drag-over status is visible.
+4. Drop a folder with recursive import off, then on. Confirm nested videos import only when recursion is enabled and probing remains asynchronous.
+5. Import videos from multiple directories. Select **Beside each source**, retain `ClipCutterOutput`, and confirm each preview points beside its own source. Confirm no directory is created until export preflight succeeds.
+6. Switch to **Fixed directory**, browse to a writable directory, and confirm every preview changes. Try an empty path, a regular file, and an unwritable path; confirm export cannot queue.
+7. Create output collisions, switch destination/profile/name, and confirm collision status/preflight refreshes. Exercise Ask, Auto Rename, Skip, and Overwrite.
+8. Restart after moving/resizing the window, splitter, volume, profile, destination, metadata, recursion, prefixes, and template. Confirm all settings restore. Invoke **Reset Settings** and confirm defaults return after restart.
+9. Resize the window to its minimum and on a high-DPI display. Confirm preview and queue remain resizable and important controls remain reachable.
+10. Apply every naming token, multiple index widths, malformed/unknown tokens, invalid filename characters, and a duplicate-rendering template. Confirm live selected-row and batch previews agree with export paths and extensions remain profile-controlled.
+11. Exercise every **Batch** action with multiple selected rows and the whole queue. Confirm the clear-queue confirmation appears once and operations retain stable row IDs/order.
+12. Filter by source, output, prefix, each export status, keep, and skip. Edit a filtered row and confirm the underlying stable segment changes. Confirm active-filter text shows the visible and total counts.
+13. Create a session, import and edit rows, Save, close, reopen, and compare order, IDs, paths, trim ranges, names/templates, prefixes, skip flags, profile, and destination workflow.
+14. Keep session sources below the session directory, move the whole directory tree, and reopen. Confirm relative sources resolve at the new location.
+15. Delete a session source and reopen. Confirm the missing row remains, other rows load, and **Relink Missing Sources** restores it and starts asynchronous probing.
+16. Modify a saved and an unnamed session, wait for debounce, then terminate without a clean close. Restart and recover. Confirm recovery is offered only when newer and never overwrites the explicit session file.
+17. Start export in each destination mode after accepting the batch-path preview. Confirm correct final paths, responsive UI, state/progress updates, cancellation cleanup, retries, and inspectable diagnostics.

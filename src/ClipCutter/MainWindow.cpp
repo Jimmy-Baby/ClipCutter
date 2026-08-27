@@ -3,17 +3,27 @@
 #include "ClipLogic.h"
 #include "Utility.h"
 #include "Core/Export/OutputProfile.h"
+#include "Core/Naming/NamingTemplate.h"
 #include "ui_MainWindow.h"
 
 #include <QAudioOutput>
 #include <QCheckBox>
+#include <QCloseEvent>
 #include <QComboBox>
+#include <QDesktopServices>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QGroupBox>
 #include <QHeaderView>
+#include <QHBoxLayout>
 #include <QItemSelectionModel>
+#include <QJsonDocument>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMediaPlayer>
+#include <QMimeData>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSignalBlocker>
@@ -21,9 +31,13 @@
 #include <QStatusBar>
 #include <QSlider>
 #include <QTableView>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
+#include <QUrl>
+#include <QVBoxLayout>
 #include <QVideoWidget>
+#include <QSplitter>
 
 #include <chrono>
 #include <limits>
@@ -39,13 +53,16 @@ ClipCutter::MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent), Ui_(new Ui::ClipCutterWindow), Player_(nullptr), VideoWidget_(nullptr),
       AudioOutput_(nullptr), PlayIcon_(QStringLiteral(":/icons/play-solid.svg")),
       PauseIcon_(QStringLiteral(":/icons/pause-solid.svg")), QueueModel_(new ClipQueueModel(this)),
+      QueueProxy_(new ClipQueueFilterModel(this)),
       ExportController_(new ExportQueueController(this)), MediaProbe_(new MediaProbe(this)),
-      StartupDiagnostics_(new StartupDiagnostics(this))
+      StartupDiagnostics_(new StartupDiagnostics(this)), AutosaveTimer_(new QTimer(this))
 {
     Ui_->setupUi(this);
-    Ui_->clipsTable->setModel(QueueModel_);
+    SetupWorkflowUi();
+    QueueProxy_->setSourceModel(QueueModel_);
+    Ui_->clipsTable->setModel(QueueProxy_);
     Ui_->clipsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    Ui_->clipsTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    Ui_->clipsTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     Ui_->clipsTable->setAlternatingRowColors(true);
     Ui_->clipsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     Ui_->clipsTable->horizontalHeader()->setSectionResizeMode(ClipQueueModel::OutputNameColumn, QHeaderView::Stretch);
@@ -96,7 +113,11 @@ ClipCutter::MainWindow::MainWindow(QWidget* parent)
     connect(Ui_->qualityCombo, &QComboBox::currentIndexChanged, QueueModel_,
             [this](const int)
             {
-                QueueModel_->UpdateAllExportProfiles(SelectedProfileId());
+                if (LoadingSession_) return;
+                if (QueueModel_->rowCount() > 0)
+                    QueueModel_->ApplyExportProfile(SelectedSegmentIds(), SelectedProfileId());
+                MarkSessionDirty();
+                UpdateOutputPreview();
                 UpdateActionStates();
             });
     Ui_->collisionCombo->addItem(QStringLiteral("Ask"), static_cast<int>(ECollisionPolicy::Ask));
@@ -113,67 +134,65 @@ ClipCutter::MainWindow::MainWindow(QWidget* parent)
     connect(ExportController_, &ExportQueueController::TotalProgressChanged, this, [this](const double progress)
             { Ui_->progressBar->setValue(qRound(std::clamp(progress, 0.0, 1.0) * 100.0)); });
     connect(ExportController_, &ExportQueueController::QueueCompleted, this, &ClipCutter::MainWindow::OnQueueCompleted);
+    AutosaveTimer_->setSingleShot(true);
+    AutosaveTimer_->setInterval(1500);
+    connect(AutosaveTimer_, &QTimer::timeout, this, &MainWindow::AutosaveSession);
+    connect(QueueModel_, &QAbstractItemModel::dataChanged, this,
+            [this](const QModelIndex&, const QModelIndex&, const QList<int>& roles)
+            {
+                const bool transient = roles.contains(ClipQueueModel::ExportStateRole) ||
+                                       roles.contains(ClipQueueModel::ExportProgressRole) ||
+                                       roles.contains(ClipQueueModel::ExportLogRole) ||
+                                       roles.contains(ClipQueueModel::MediaProbeRole);
+                if (!transient) MarkSessionDirty();
+                UpdateOutputPreview();
+            });
+    connect(QueueModel_, &QAbstractItemModel::rowsInserted, this, [this] { MarkSessionDirty(); UpdateFilterStatus(); });
+    connect(QueueModel_, &QAbstractItemModel::rowsRemoved, this, [this] { MarkSessionDirty(); UpdateFilterStatus(); });
+    connect(QueueModel_, &QAbstractItemModel::modelReset, this, [this] { MarkSessionDirty(); UpdateFilterStatus(); });
+    LoadApplicationSettings();
     ClearCurrentClipUi();
     StartupDiagnostics_->Start();
+    QTimer::singleShot(0, this,
+        [this]
+        {
+            const QString recovery = SessionRepository::DefaultRecoveryPath();
+            if (SessionRepository::ShouldOfferRecovery(recovery) &&
+                QMessageBox::question(this, QStringLiteral("Recover session"),
+                                      QStringLiteral("A newer autosaved session was found. Recover it?")) == QMessageBox::Yes)
+                LoadSessionFile(recovery, true);
+        });
 }
 
 ClipCutter::MainWindow::~MainWindow()
 {
+    SaveApplicationSettings();
     delete Ui_;
 }
 
 void ClipCutter::MainWindow::ActionOpenFolderTriggered()
 {
     const QString folder =
-        QFileDialog::getExistingDirectory(this, tr("Open Directory"), QStringLiteral("/home"),
+        QFileDialog::getExistingDirectory(this, tr("Open Directory"), ApplicationSettings_.LastImportDirectory,
                                           QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
     if (folder.isEmpty())
     {
         return;
     }
-    const QDir directory(folder);
-    ClipCutter::ImportResult result = ClipImporter_.ImportDirectory(directory);
-    if (result.Imported.isEmpty())
-    {
-        PresentImportMessages(result);
-        QMessageBox::information(
-            this, QStringLiteral("ClipCutter"),
-            QStringLiteral("No supported video files were found in:\n%1").arg(directory.absolutePath()));
-        return;
-    }
-    QString preparedOutputDirectory;
-    QString outputError;
-    if (!Utility::PrepareOutputDirectory(directory, preparedOutputDirectory, outputError))
-    {
-        QMessageBox::critical(this, QStringLiteral("ClipCutter"), outputError);
-        return;
-    }
-    LoadImportedClips(std::move(result), directory, preparedOutputDirectory);
+    ApplicationSettings_.LastImportDirectory = QDir(folder).absolutePath();
+    ImportPaths({folder});
 }
 
 void ClipCutter::MainWindow::ActionOpenFilesTriggered()
 {
-    const QStringList paths = QFileDialog::getOpenFileNames(this, tr("Open File"), QStringLiteral("/home"),
+    const QStringList paths = QFileDialog::getOpenFileNames(this, tr("Open File"), ApplicationSettings_.LastImportDirectory,
                                                             ClipCutter::ClipImporter::FileDialogFilter());
     if (paths.isEmpty())
     {
         return;
     }
-    ClipCutter::ImportResult result = ClipImporter_.ImportFiles(paths);
-    if (result.Imported.isEmpty())
-    {
-        PresentImportMessages(result);
-        return;
-    }
-    const QDir directory = QFileInfo(result.Imported.constFirst().SourcePath).dir();
-    QString preparedOutputDirectory;
-    QString outputError;
-    if (!Utility::PrepareOutputDirectory(directory, preparedOutputDirectory, outputError))
-    {
-        QMessageBox::critical(this, QStringLiteral("ClipCutter"), outputError);
-        return;
-    }
-    LoadImportedClips(std::move(result), directory, preparedOutputDirectory);
+    ApplicationSettings_.LastImportDirectory = QFileInfo(paths.constFirst()).dir().absolutePath();
+    ImportPaths(paths);
 }
 
 void ClipCutter::MainWindow::ActionPlayPauseTriggered()
@@ -304,6 +323,8 @@ void ClipCutter::MainWindow::OnVideoNameChanged(const QString& newName)
     if (!CurrentSegmentId_.isNull())
     {
         QueueModel_->UpdateOutputBaseName(CurrentSegmentId_, newName);
+        if (Segment* segment = QueueModel_->FindSegment(CurrentSegmentId_)) segment->NamingTemplatePattern.reset();
+        UpdateOutputPreview();
     }
 }
 
@@ -313,6 +334,7 @@ void ClipCutter::MainWindow::OnKeywordChanged(QTreeWidgetItem* current, QTreeWid
     Q_UNUSED(previous);
     UpdateKeywordUi();
     UpdateActionStates();
+    UpdateOutputPreview();
 }
 
 void ClipCutter::MainWindow::OnJobStateChanged(const QUuid& jobId, const EExportState state)
@@ -477,32 +499,57 @@ void ClipCutter::MainWindow::ClearCurrentClipUi()
     UpdateStartEndUi();
     UpdateKeywordUi();
     UpdateActionStates();
+    UpdateOutputPreview();
 }
 
 void ClipCutter::MainWindow::LoadImportedClips(ClipCutter::ImportResult result, const QDir& directory,
                                                const QString& preparedOutputDirectory)
 {
-    ClearCurrentClipUi();
-    ExportController_->SetJobs({});
-    JobToSegmentId_.clear();
-    QueueModel_->ClearClips();
-    VideoDirectory_ = directory;
-    OutputDirectory_ = preparedOutputDirectory;
+    Q_UNUSED(preparedOutputDirectory);
+    if (QueueModel_->rowCount() == 0) ClearCurrentClipUi();
+    if (directory.exists()) VideoDirectory_ = directory;
+    const int firstNewRow = QueueModel_->rowCount();
     QueueModel_->AddClips(std::move(result.Imported));
     Ui_->progressBar->setValue(0);
     if (Ui_->qualityCombo->currentIndex() >= 0)
     {
-        QueueModel_->UpdateAllExportProfiles(SelectedProfileId());
+        QSet<QUuid> importedIds;
+        for (int row = firstNewRow; row < QueueModel_->rowCount(); ++row)
+            importedIds.insert(QueueModel_->SegmentIdAtRow(row));
+        QueueModel_->ApplyExportProfile(importedIds, SelectedProfileId());
     }
     PresentImportMessages(result);
-    for (const Clip& clip : QueueModel_->Clips())
+    for (int row = firstNewRow; row < QueueModel_->rowCount(); ++row)
     {
-        MediaProbe_->Probe(clip.Id, clip.SourcePath);
+        const Clip* clip = QueueModel_->FindClip(QueueModel_->ClipIdAtRow(row));
+        if (clip != nullptr) MediaProbe_->Probe(clip->Id, clip->SourcePath);
     }
     if (QueueModel_->rowCount() > 0)
     {
-        OpenVideo(0);
+        OpenVideo(firstNewRow);
     }
+    UpdateOutputPreview();
+}
+
+void ClipCutter::MainWindow::ImportPaths(const QStringList& paths)
+{
+    ImportOptions options;
+    options.ExistingCanonicalPaths = QueueModel_->CanonicalSourcePaths();
+    options.DuplicatePolicy = EDuplicatePolicy::Skip;
+    options.RecursiveDirectories = RecursiveImportCheckBox_ != nullptr && RecursiveImportCheckBox_->isChecked();
+    ImportResult result = ClipImporter_.ImportPaths(paths, options);
+    if (result.Imported.isEmpty())
+    {
+        PresentImportMessages(result);
+        statusBar()->showMessage(QStringLiteral("No supported new videos found; %1 item(s) ignored.").arg(result.Skipped.size()), 6000);
+        return;
+    }
+    const QDir directory = QFileInfo(result.Imported.constFirst().SourcePath).dir();
+    const int imported = result.Imported.size();
+    const int ignored = result.Skipped.size() + result.Errors.size();
+    LoadImportedClips(std::move(result), directory);
+    statusBar()->showMessage(QStringLiteral("Imported %1 video(s); ignored %2 unsupported or duplicate item(s).")
+                                 .arg(imported).arg(ignored), 6000);
 }
 
 void ClipCutter::MainWindow::PresentImportMessages(const ClipCutter::ImportResult& result)
@@ -535,14 +582,17 @@ void ClipCutter::MainWindow::OpenVideo(int row)
     Player_->pause();
     {
         const QSignalBlocker blocker(Ui_->clipsTable->selectionModel());
+        const QModelIndex proxyIndex = QueueProxy_->mapFromSource(
+            QueueModel_->index(row, ClipCutter::ClipQueueModel::SourceNameColumn));
         Ui_->clipsTable->selectionModel()->setCurrentIndex(
-            QueueModel_->index(row, ClipCutter::ClipQueueModel::SourceNameColumn),
+            proxyIndex,
             QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
     }
     UpdateCurrentVideoName();
     UpdateStartEndUi();
     UpdateKeywordUi();
     UpdateActionStates();
+    UpdateOutputPreview();
     Ui_->actionPlayPause->setIcon(PauseIcon_);
     Player_->play();
 }
@@ -567,22 +617,41 @@ void ClipCutter::MainWindow::ProcessClips()
         QMessageBox::warning(this, QStringLiteral("ClipCutter"), rangeErrors.join(QLatin1Char('\n')));
         return;
     }
-    QString preparedOutputDirectory;
-    QString outputError;
-    if (!Utility::PrepareOutputDirectory(VideoDirectory_, preparedOutputDirectory, outputError))
-    {
-        QMessageBox::critical(this, QStringLiteral("ClipCutter"), outputError);
-        return;
-    }
-    OutputDirectory_ = preparedOutputDirectory;
-    QVector<OutputRequest> requests;
+    OutputDestinationSettings destination;
+    destination.Mode = DestinationModeCombo_->currentData().toInt() == 1
+                           ? EOutputDestinationMode::FixedDirectory : EOutputDestinationMode::SourceRelative;
+    destination.SourceRelativeSubdirectory = destination.Mode == EOutputDestinationMode::SourceRelative
+                                                   ? DestinationEdit_->text().trimmed() : ApplicationSettings_.SourceRelativeSubdirectory;
+    destination.FixedDirectory = destination.Mode == EOutputDestinationMode::FixedDirectory
+                                      ? DestinationEdit_->text().trimmed() : ApplicationSettings_.LastFixedOutputDirectory;
+    QVector<DestinationRequest> requests;
+    QStringList sourcePaths;
     for (const ExportSegment& segment : segments)
     {
         if (!segment.Skipped)
-            requests.append({segment.SegmentId, segment.OutputBaseName, segment.OutputExtension});
+        {
+            DestinationRequest request;
+            request.SegmentId = segment.SegmentId;
+            request.BaseName = segment.OutputBaseName;
+            request.Extension = segment.OutputExtension;
+            request.SourcePath = segment.SourcePath;
+            requests.append(request);
+            sourcePaths.append(segment.SourcePath);
+        }
+    }
+    QString outputError = OutputDestination::Validate(destination, sourcePaths);
+    if (!outputError.isEmpty())
+    {
+        QMessageBox::critical(this, QStringLiteral("Output destination"), outputError);
+        return;
+    }
+    if (!OutputDestination::PrepareDirectories(destination, sourcePaths, &outputError))
+    {
+        QMessageBox::critical(this, QStringLiteral("Output destination"), outputError);
+        return;
     }
     ECollisionPolicy collisionPolicy = SelectedCollisionPolicy();
-    OutputPreflightResult preflight = OutputPathPlanner::Preflight(requests, QDir(OutputDirectory_), collisionPolicy);
+    OutputPreflightResult preflight = OutputDestination::Preflight(requests, destination, collisionPolicy);
     if (collisionPolicy == ECollisionPolicy::Ask && !preflight.Collisions.isEmpty())
     {
         QMessageBox choice(QMessageBox::Question, QStringLiteral("Output conflicts"),
@@ -597,7 +666,7 @@ void ClipCutter::MainWindow::ProcessClips()
         else if (choice.clickedButton() == skip) collisionPolicy = ECollisionPolicy::Skip;
         else if (choice.clickedButton() == overwrite) collisionPolicy = ECollisionPolicy::Overwrite;
         else return;
-        preflight = OutputPathPlanner::Preflight(requests, QDir(OutputDirectory_), collisionPolicy);
+        preflight = OutputDestination::Preflight(requests, destination, collisionPolicy);
     }
     if (!preflight.Errors.isEmpty() || !preflight.Collisions.isEmpty())
     {
@@ -605,7 +674,22 @@ void ClipCutter::MainWindow::ProcessClips()
                              (preflight.Errors + preflight.Collisions).join(QLatin1Char('\n')));
         return;
     }
-    OutputPathPlanner::CleanupStaleTemporaryFiles(QDir(OutputDirectory_));
+    QStringList batchPaths;
+    for (const PlannedOutput& output : preflight.Outputs)
+        if (!output.Skipped) batchPaths.append(output.FinalPath);
+    QMessageBox batchPreview(QMessageBox::Question, QStringLiteral("Batch output preview"),
+                             QStringLiteral("Export %1 output(s) to the paths shown?").arg(batchPaths.size()),
+                             QMessageBox::Yes | QMessageBox::Cancel, this);
+    batchPreview.setDefaultButton(QMessageBox::Yes);
+    batchPreview.setDetailedText(batchPaths.join(QLatin1Char('\n')));
+    if (batchPreview.exec() != QMessageBox::Yes) return;
+    QSet<QString> cleanedDirectories;
+    for (const DestinationRequest& request : requests)
+    {
+        const QString directory = OutputDestination::DirectoryForSource(request.SourcePath, destination);
+        if (!cleanedDirectories.contains(directory)) OutputPathPlanner::CleanupStaleTemporaryFiles(QDir(directory));
+        cleanedDirectories.insert(directory);
+    }
     QueueModel_->ResetExportRuntime();
     JobToSegmentId_.clear();
 
@@ -804,7 +888,13 @@ QVector<ClipCutter::ExportJob> ClipCutter::MainWindow::BuildExportJobs(
         }
         if (job.FinalOutputPath.isEmpty())
         {
-            job.FinalOutputPath = QDir(OutputDirectory_).absoluteFilePath(segment.OutputFileName);
+            OutputDestinationSettings destination;
+            destination.Mode = DestinationModeCombo_->currentData().toInt() == 1
+                                   ? EOutputDestinationMode::FixedDirectory : EOutputDestinationMode::SourceRelative;
+            destination.SourceRelativeSubdirectory = ApplicationSettings_.SourceRelativeSubdirectory;
+            destination.FixedDirectory = ApplicationSettings_.LastFixedOutputDirectory;
+            job.FinalOutputPath = QDir(OutputDestination::DirectoryForSource(segment.SourcePath, destination))
+                                      .absoluteFilePath(segment.OutputFileName);
             job.TemporaryOutputPath = OutputPathPlanner::CreateTemporaryPath(job.FinalOutputPath, job.JobId);
         }
         jobs.append(std::move(job));
@@ -882,4 +972,552 @@ ClipCutter::Segment* ClipCutter::MainWindow::CurrentSegment()
 const ClipCutter::Segment* ClipCutter::MainWindow::CurrentSegment() const
 {
     return QueueModel_->FindSegment(CurrentSegmentId_);
+}
+
+void ClipCutter::MainWindow::SetupWorkflowUi()
+{
+    setMinimumSize(760, 520);
+    Ui_->clipsBox->setMinimumSize(250, 0);
+    Ui_->clipsBox->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    Ui_->playerBox->setMinimumSize(300, 180);
+    Ui_->qualityCombo->setMinimumWidth(120);
+    Ui_->qualityCombo->setMaximumWidth(QWIDGETSIZE_MAX);
+
+    Ui_->gridLayout->removeWidget(Ui_->playerBox);
+    Ui_->gridLayout->removeWidget(Ui_->timelineBox);
+    Ui_->gridLayout->removeWidget(Ui_->clipsBox);
+    auto* previewPanel = new QWidget(Ui_->centralWidget);
+    auto* previewLayout = new QVBoxLayout(previewPanel);
+    previewLayout->setContentsMargins(0, 0, 0, 0);
+    previewLayout->addWidget(Ui_->playerBox, 1);
+    previewLayout->addWidget(Ui_->timelineBox);
+    MainSplitter_ = new QSplitter(Qt::Horizontal, Ui_->centralWidget);
+    MainSplitter_->setObjectName(QStringLiteral("mainSplitter"));
+    MainSplitter_->addWidget(previewPanel);
+    MainSplitter_->addWidget(Ui_->clipsBox);
+    MainSplitter_->setStretchFactor(0, 3);
+    MainSplitter_->setStretchFactor(1, 2);
+    MainSplitter_->setChildrenCollapsible(false);
+    Ui_->gridLayout->addWidget(MainSplitter_, 4, 2, 2, 6);
+
+    auto* outputDestinationBox = new QGroupBox(QStringLiteral("Destination and naming"), Ui_->centralWidget);
+    auto* destinationLayout = new QHBoxLayout(outputDestinationBox);
+    DestinationModeCombo_ = new QComboBox(outputDestinationBox);
+    DestinationModeCombo_->addItem(QStringLiteral("Beside each source"), 0);
+    DestinationModeCombo_->addItem(QStringLiteral("Fixed directory"), 1);
+    DestinationEdit_ = new QLineEdit(outputDestinationBox);
+    DestinationBrowseButton_ = new QPushButton(QStringLiteral("Browse…"), outputDestinationBox);
+    OutputPreviewLabel_ = new QLabel(outputDestinationBox);
+    OutputPreviewLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    OutputPreviewLabel_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    destinationLayout->addWidget(DestinationModeCombo_);
+    destinationLayout->addWidget(DestinationEdit_, 1);
+    destinationLayout->addWidget(DestinationBrowseButton_);
+    destinationLayout->addWidget(OutputPreviewLabel_, 2);
+    Ui_->gridLayout->addWidget(outputDestinationBox, 3, 2, 1, 6);
+
+    QueueFilterEdit_ = new QLineEdit(Ui_->clipsGroupBox);
+    QueueFilterEdit_->setPlaceholderText(QStringLiteral("Filter source, output, prefix, status, keep/skip"));
+    auto* clearFilter = new QPushButton(QStringLiteral("Clear"), Ui_->clipsGroupBox);
+    FilterStatusLabel_ = new QLabel(Ui_->clipsGroupBox);
+    Ui_->gridLayout_3->addWidget(QueueFilterEdit_, 0, 0);
+    Ui_->gridLayout_3->addWidget(clearFilter, 0, 1);
+    Ui_->gridLayout_3->addWidget(FilterStatusLabel_, 1, 0, 1, 2);
+
+    NamingTemplateEdit_ = new QLineEdit(Ui_->clipNameBox);
+    NamingTemplateEdit_->setPlaceholderText(NamingTemplate::DefaultPattern());
+    NamingPreviewLabel_ = new QLabel(Ui_->clipNameBox);
+    NamingPreviewLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    auto* applyTemplate = new QPushButton(QStringLiteral("Apply template"), Ui_->clipNameBox);
+    Ui_->gridLayout_5->addWidget(new QLabel(QStringLiteral("Template:"), Ui_->clipNameBox), 1, 0);
+    Ui_->gridLayout_5->addWidget(NamingTemplateEdit_, 1, 1);
+    Ui_->gridLayout_5->addWidget(applyTemplate, 1, 2);
+    Ui_->gridLayout_5->addWidget(NamingPreviewLabel_, 2, 0, 1, 3);
+
+    RecursiveImportCheckBox_ = new QCheckBox(QStringLiteral("Import dropped/opened folders recursively"), Ui_->clipsBox);
+    Ui_->gridLayout_2->addWidget(RecursiveImportCheckBox_, 0, 0);
+
+    connect(QueueFilterEdit_, &QLineEdit::textChanged, this,
+            [this](const QString& text) { QueueProxy_->SetSearchText(text); UpdateFilterStatus(); });
+    connect(clearFilter, &QPushButton::clicked, this,
+            [this] { QueueFilterEdit_->clear(); QueueProxy_->ClearFilters(); UpdateFilterStatus(); });
+    connect(NamingTemplateEdit_, &QLineEdit::textChanged, this,
+            [this] { UpdateOutputPreview(); MarkSessionDirty(); });
+    connect(applyTemplate, &QPushButton::clicked, this,
+            [this] { ApplyNamingTemplateTo(SelectedSegmentIds()); });
+    connect(DestinationModeCombo_, &QComboBox::currentIndexChanged, this,
+            [this]
+            {
+                const bool fixed = DestinationModeCombo_->currentData().toInt() == 1;
+                DestinationBrowseButton_->setEnabled(fixed);
+                DestinationEdit_->setText(fixed ? ApplicationSettings_.LastFixedOutputDirectory
+                                                : ApplicationSettings_.SourceRelativeSubdirectory);
+                MarkSessionDirty();
+                UpdateOutputPreview();
+            });
+    connect(DestinationEdit_, &QLineEdit::textChanged, this,
+            [this](const QString& value)
+            {
+                if (DestinationModeCombo_->currentData().toInt() == 1) ApplicationSettings_.LastFixedOutputDirectory = value;
+                else ApplicationSettings_.SourceRelativeSubdirectory = value;
+                MarkSessionDirty();
+                UpdateOutputPreview();
+            });
+    connect(DestinationBrowseButton_, &QPushButton::clicked, this,
+            [this]
+            {
+                const QString directory = QFileDialog::getExistingDirectory(
+                    this, QStringLiteral("Choose output directory"), ApplicationSettings_.LastFixedOutputDirectory);
+                if (!directory.isEmpty()) DestinationEdit_->setText(QDir::cleanPath(directory));
+            });
+    connect(RecursiveImportCheckBox_, &QCheckBox::toggled, this,
+            [this](const bool checked) { ApplicationSettings_.RecursiveFolderImport = checked; MarkSessionDirty(); });
+
+    QAction* newAction = new QAction(QStringLiteral("New Session"), this);
+    Ui_->menuFile->insertAction(Ui_->actionOpenFolder, newAction);
+    newAction->setShortcut(QKeySequence::New);
+    QAction* openAction = new QAction(QStringLiteral("Open Session…"), this);
+    Ui_->menuFile->insertAction(Ui_->actionOpenFolder, openAction);
+    openAction->setShortcut(QKeySequence::Open);
+    QAction* saveAction = new QAction(QStringLiteral("Save Session"), this);
+    Ui_->menuFile->insertAction(Ui_->actionOpenFolder, saveAction);
+    saveAction->setShortcut(QKeySequence::Save);
+    QAction* saveAsAction = new QAction(QStringLiteral("Save Session As…"), this);
+    Ui_->menuFile->insertAction(Ui_->actionOpenFolder, saveAsAction);
+    saveAsAction->setShortcut(QKeySequence::SaveAs);
+    Ui_->menuFile->insertSeparator(Ui_->actionOpenFolder);
+    QAction* resetSettingsAction = Ui_->menuFile->addAction(QStringLiteral("Reset Settings"));
+    QAction* relinkAction = new QAction(QStringLiteral("Relink Missing Sources…"), this);
+    Ui_->menuFile->insertAction(Ui_->actionOpenFolder, relinkAction);
+    connect(newAction, &QAction::triggered, this, &MainWindow::NewSession);
+    connect(openAction, &QAction::triggered, this, &MainWindow::OpenSession);
+    connect(saveAction, &QAction::triggered, this, [this] { SaveSession(); });
+    connect(saveAsAction, &QAction::triggered, this, [this] { SaveSessionAs(); });
+    connect(resetSettingsAction, &QAction::triggered, this, &MainWindow::ResetSettings);
+    connect(relinkAction, &QAction::triggered, this, &MainWindow::RelinkMissingSources);
+
+    QMenu* batchMenu = menuBar()->addMenu(QStringLiteral("Batch"));
+    batchMenu->addAction(QStringLiteral("Keep selected"), this,
+        [this] { QueueModel_->UpdateSkipStates(SelectedSegmentIds(), false); });
+    batchMenu->addAction(QStringLiteral("Skip selected"), this,
+        [this] { QueueModel_->UpdateSkipStates(SelectedSegmentIds(), true); });
+    batchMenu->addAction(QStringLiteral("Invert selected keep/skip"), this,
+        [this] { QueueModel_->InvertSkipStates(SelectedSegmentIds()); });
+    batchMenu->addAction(QStringLiteral("Keep all"), this, [this] { QueueModel_->UpdateAllSkipStates(false); });
+    batchMenu->addAction(QStringLiteral("Skip all"), this, [this] { QueueModel_->UpdateAllSkipStates(true); });
+    batchMenu->addAction(QStringLiteral("Invert keep/skip"), this, [this] { QueueModel_->InvertSkipStates(); });
+    batchMenu->addSeparator();
+    batchMenu->addAction(QStringLiteral("Apply prefix to selected"), this,
+        [this] { QueueModel_->ApplyPrefixTo(SelectedSegmentIds(), Ui_->keywordEdit->text()); });
+    batchMenu->addAction(QStringLiteral("Apply prefix to all"), this,
+        [this] { QueueModel_->ApplyPrefixTo({}, Ui_->keywordEdit->text()); });
+    batchMenu->addAction(QStringLiteral("Clear prefix from selected"), this,
+        [this] { QueueModel_->ClearPrefixes(SelectedSegmentIds()); });
+    batchMenu->addAction(QStringLiteral("Clear prefix from all"), this,
+        [this] { QueueModel_->ClearPrefixes(); });
+    batchMenu->addAction(QStringLiteral("Apply naming template to selected"), this,
+        [this] { ApplyNamingTemplateTo(SelectedSegmentIds()); });
+    batchMenu->addAction(QStringLiteral("Apply naming template to all"), this,
+        [this] { ApplyNamingTemplateTo({}); });
+    batchMenu->addAction(QStringLiteral("Apply output profile to selected"), this,
+        [this] { QueueModel_->ApplyExportProfile(SelectedSegmentIds(), SelectedProfileId()); });
+    batchMenu->addAction(QStringLiteral("Apply output profile to all"), this,
+        [this] { QueueModel_->ApplyExportProfile({}, SelectedProfileId()); });
+    batchMenu->addAction(QStringLiteral("Reset selected trim range"), this,
+        [this] { QueueModel_->ResetTrimRanges(SelectedSegmentIds()); });
+    batchMenu->addAction(QStringLiteral("Reset all trim ranges"), this,
+        [this] { QueueModel_->ResetTrimRanges(); });
+    batchMenu->addAction(QStringLiteral("Remove selected entries"), this,
+        [this] { QueueModel_->RemoveEntries(SelectedSegmentIds()); });
+    batchMenu->addSeparator();
+    batchMenu->addAction(QStringLiteral("Clear queue"), this,
+        [this]
+        {
+            if (QueueModel_->rowCount() > 0 && QMessageBox::question(this, QStringLiteral("Clear queue"),
+                    QStringLiteral("Remove all entries from the queue?")) == QMessageBox::Yes)
+            {
+                ClearCurrentClipUi();
+                QueueModel_->ClearClips();
+            }
+        });
+}
+
+void ClipCutter::MainWindow::LoadApplicationSettings()
+{
+    ApplicationSettings_ = SettingsRepository_.Load();
+    if (!ApplicationSettings_.WindowGeometry.isEmpty()) restoreGeometry(ApplicationSettings_.WindowGeometry);
+    if (!ApplicationSettings_.WindowState.isEmpty()) restoreState(ApplicationSettings_.WindowState);
+    if (MainSplitter_ != nullptr && !ApplicationSettings_.MainSplitterState.isEmpty())
+        MainSplitter_->restoreState(ApplicationSettings_.MainSplitterState);
+    Ui_->volumeSlider->setValue(ApplicationSettings_.PreviewVolume);
+    OnVolumeChanged(ApplicationSettings_.PreviewVolume);
+    Ui_->checkboxCopyMetadata->setChecked(ApplicationSettings_.PreserveMetadata);
+    UserSettings_.CopyDateTime = ApplicationSettings_.PreserveMetadata;
+    RecursiveImportCheckBox_->setChecked(ApplicationSettings_.RecursiveFolderImport);
+    NamingTemplateEdit_->setText(ApplicationSettings_.SelectedNamingTemplate);
+    for (const QString& prefix : ApplicationSettings_.SavedPrefixes)
+    {
+        auto* item = new QTreeWidgetItem(Ui_->keywordsTree);
+        item->setText(KKeywordTextColumn, prefix);
+    }
+    const int profileIndex = Ui_->qualityCombo->findData(ApplicationSettings_.SelectedOutputProfile);
+    if (profileIndex >= 0) Ui_->qualityCombo->setCurrentIndex(profileIndex);
+    DestinationModeCombo_->setCurrentIndex(ApplicationSettings_.DestinationMode == EOutputDestinationMode::FixedDirectory ? 1 : 0);
+    DestinationEdit_->setText(ApplicationSettings_.DestinationMode == EOutputDestinationMode::FixedDirectory
+                                  ? ApplicationSettings_.LastFixedOutputDirectory
+                                  : ApplicationSettings_.SourceRelativeSubdirectory);
+    SessionState_.Reset();
+    setWindowTitle(QStringLiteral("ClipCutter"));
+}
+
+void ClipCutter::MainWindow::SaveApplicationSettings()
+{
+    ApplicationSettings_.WindowGeometry = saveGeometry();
+    ApplicationSettings_.WindowState = saveState();
+    ApplicationSettings_.MainSplitterState = MainSplitter_ == nullptr ? QByteArray() : MainSplitter_->saveState();
+    ApplicationSettings_.PreviewVolume = Ui_->volumeSlider->value();
+    ApplicationSettings_.DestinationMode = DestinationModeCombo_->currentData().toInt() == 1
+                                                ? EOutputDestinationMode::FixedDirectory
+                                                : EOutputDestinationMode::SourceRelative;
+    ApplicationSettings_.SelectedOutputProfile = SelectedProfileId();
+    ApplicationSettings_.PreserveMetadata = Ui_->checkboxCopyMetadata->isChecked();
+    ApplicationSettings_.RecursiveFolderImport = RecursiveImportCheckBox_->isChecked();
+    ApplicationSettings_.SelectedNamingTemplate = NamingTemplateEdit_->text();
+    ApplicationSettings_.SavedPrefixes.clear();
+    for (int index = 0; index < Ui_->keywordsTree->topLevelItemCount(); ++index)
+        ApplicationSettings_.SavedPrefixes.append(Ui_->keywordsTree->topLevelItem(index)->text(KKeywordTextColumn));
+    SettingsRepository_.Save(ApplicationSettings_);
+}
+
+void ClipCutter::MainWindow::UpdateOutputPreview()
+{
+    const Clip* clip = CurrentClip();
+    const Segment* segment = CurrentSegment();
+    if (clip == nullptr || segment == nullptr || DestinationEdit_ == nullptr)
+    {
+        if (OutputPreviewLabel_ != nullptr) OutputPreviewLabel_->setText(QStringLiteral("Output: —"));
+        if (NamingPreviewLabel_ != nullptr) NamingPreviewLabel_->clear();
+        return;
+    }
+    NamingTemplateContext context;
+    context.Original = QFileInfo(clip->OriginalFileName).completeBaseName();
+    context.Prefix = segment->Prefix.value_or(QString());
+    context.Index = QueueModel_->RowForSegment(segment->Id) + 1;
+    context.Profile = SelectedProfileId();
+    const NamingTemplateResult naming = NamingTemplate::Render(NamingTemplateEdit_->text(), context);
+    NamingPreviewLabel_->setText(naming.IsValid() ? QStringLiteral("Preview: %1%2").arg(naming.Value, segment->OutputExtension)
+                                                  : naming.Error);
+    NamingPreviewLabel_->setStyleSheet(naming.IsValid() ? QString() : QStringLiteral("color: palette(bright-text);"));
+    OutputDestinationSettings destination;
+    destination.Mode = DestinationModeCombo_->currentData().toInt() == 1
+                           ? EOutputDestinationMode::FixedDirectory : EOutputDestinationMode::SourceRelative;
+    destination.SourceRelativeSubdirectory = destination.Mode == EOutputDestinationMode::SourceRelative
+                                                   ? DestinationEdit_->text() : ApplicationSettings_.SourceRelativeSubdirectory;
+    destination.FixedDirectory = destination.Mode == EOutputDestinationMode::FixedDirectory
+                                      ? DestinationEdit_->text() : ApplicationSettings_.LastFixedOutputDirectory;
+    const QString directory = OutputDestination::DirectoryForSource(clip->SourcePath, destination);
+    const QString base = naming.IsValid() ? naming.Value : segment->OutputBaseName;
+    QString preview = directory.isEmpty()
+                          ? QStringLiteral("Output: choose a fixed directory")
+                          : QStringLiteral("Output: %1").arg(QDir(directory).absoluteFilePath(base + segment->OutputExtension));
+    QVector<DestinationRequest> requests;
+    QStringList sources;
+    bool destinationsExist = true;
+    for (const ExportSegment& item : QueueModel_->ExportSegments())
+    {
+        if (item.Skipped) continue;
+        DestinationRequest request;
+        request.SegmentId = item.SegmentId;
+        request.BaseName = item.OutputBaseName;
+        request.Extension = item.OutputExtension;
+        request.SourcePath = item.SourcePath;
+        requests.append(request);
+        sources.append(item.SourcePath);
+        destinationsExist = destinationsExist && QFileInfo::exists(OutputDestination::DirectoryForSource(item.SourcePath, destination));
+    }
+    if (destinationsExist && OutputDestination::Validate(destination, sources).isEmpty())
+    {
+        const OutputPreflightResult preflight = OutputDestination::Preflight(requests, destination, ECollisionPolicy::Ask);
+        if (!preflight.Collisions.isEmpty()) preview += QStringLiteral("  — %1 collision(s)").arg(preflight.Collisions.size());
+    }
+    OutputPreviewLabel_->setText(preview);
+    OutputPreviewLabel_->setToolTip(OutputPreviewLabel_->text());
+}
+
+void ClipCutter::MainWindow::UpdateFilterStatus()
+{
+    const int visible = QueueProxy_->rowCount();
+    const int total = QueueModel_->rowCount();
+    FilterStatusLabel_->setText(QueueProxy_->HasActiveFilter()
+                                    ? QStringLiteral("Showing %1 of %2 — filter active").arg(visible).arg(total)
+                                    : QStringLiteral("%1 item(s)").arg(total));
+}
+
+QSet<QUuid> ClipCutter::MainWindow::SelectedSegmentIds() const
+{
+    QSet<QUuid> result;
+    if (Ui_->clipsTable->selectionModel() != nullptr)
+        for (const QModelIndex& index : Ui_->clipsTable->selectionModel()->selectedRows())
+            result.insert(index.data(ClipQueueModel::SegmentIdRole).toUuid());
+    if (result.isEmpty() && !CurrentSegmentId_.isNull()) result.insert(CurrentSegmentId_);
+    return result;
+}
+
+void ClipCutter::MainWindow::ApplyNamingTemplateTo(const QSet<QUuid>& ids)
+{
+    QString error;
+    if (!QueueModel_->ApplyNamingTemplate(ids, NamingTemplateEdit_->text(), QDate::currentDate(), &error))
+    {
+        QMessageBox::warning(this, QStringLiteral("Naming template"), error);
+        return;
+    }
+    UpdateCurrentVideoName();
+    UpdateOutputPreview();
+}
+
+void ClipCutter::MainWindow::MarkSessionDirty()
+{
+    if (LoadingSession_) return;
+    SessionState_.MarkModified();
+    setWindowTitle(QStringLiteral("ClipCutter — %1%2")
+                       .arg(SessionState_.FilePath().isEmpty() ? QStringLiteral("Untitled")
+                                                              : QFileInfo(SessionState_.FilePath()).fileName(),
+                            QStringLiteral(" *")));
+    AutosaveTimer_->start();
+}
+
+ClipCutter::SessionData ClipCutter::MainWindow::CurrentSessionData() const
+{
+    SessionData session;
+    session.Clips = QueueModel_->Clips();
+    session.Destination.Mode = DestinationModeCombo_->currentData().toInt() == 1
+                                ? EOutputDestinationMode::FixedDirectory : EOutputDestinationMode::SourceRelative;
+    session.Destination.SourceRelativeSubdirectory = ApplicationSettings_.SourceRelativeSubdirectory;
+    session.Destination.FixedDirectory = ApplicationSettings_.LastFixedOutputDirectory;
+    session.SelectedOutputProfile = SelectedProfileId();
+    session.PreserveMetadata = Ui_->checkboxCopyMetadata->isChecked();
+    session.RecursiveFolderImport = RecursiveImportCheckBox_->isChecked();
+    session.SelectedNamingTemplate = NamingTemplateEdit_->text();
+    for (int index = 0; index < Ui_->keywordsTree->topLevelItemCount(); ++index)
+        session.SavedPrefixes.append(Ui_->keywordsTree->topLevelItem(index)->text(KKeywordTextColumn));
+    session.ExplicitSessionPath = SessionState_.FilePath();
+    if (!session.ExplicitSessionPath.isEmpty()) session.ExplicitSaveTimeUtc = QFileInfo(session.ExplicitSessionPath).lastModified().toUTC();
+    return session;
+}
+
+void ClipCutter::MainWindow::AutosaveSession()
+{
+    if (!SessionState_.IsDirty()) return;
+    QString error;
+    if (!SessionRepository::Save(SessionRepository::DefaultRecoveryPath(), CurrentSessionData(), &error, true))
+        statusBar()->showMessage(error, 8000);
+}
+
+bool ClipCutter::MainWindow::MaybeSaveChanges()
+{
+    if (!SessionState_.IsDirty()) return true;
+    QMessageBox box(QMessageBox::Warning, QStringLiteral("Unsaved changes"),
+                    QStringLiteral("Save changes to the current session?"), QMessageBox::NoButton, this);
+    box.addButton(QMessageBox::Save);
+    box.addButton(QMessageBox::Discard);
+    box.addButton(QMessageBox::Cancel);
+    box.exec();
+    if (box.standardButton(box.clickedButton()) == QMessageBox::Save) return SaveSession();
+    if (box.standardButton(box.clickedButton()) == QMessageBox::Discard) return true;
+    return false;
+}
+
+void ClipCutter::MainWindow::NewSession()
+{
+    if (!MaybeSaveChanges()) return;
+    LoadingSession_ = true;
+    ClearCurrentClipUi();
+    QueueModel_->ClearClips();
+    ExportController_->SetJobs({});
+    JobToSegmentId_.clear();
+    SessionState_.Reset();
+    LoadingSession_ = false;
+    SessionRepository::RemoveRecovery();
+    setWindowTitle(QStringLiteral("ClipCutter"));
+    UpdateFilterStatus();
+}
+
+void ClipCutter::MainWindow::OpenSession()
+{
+    if (!MaybeSaveChanges()) return;
+    const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Open ClipCutter session"),
+                                                      ApplicationSettings_.LastImportDirectory,
+                                                      QStringLiteral("ClipCutter Session (*.clipcutter.json *.json)"));
+    if (!path.isEmpty()) LoadSessionFile(path);
+}
+
+bool ClipCutter::MainWindow::LoadSessionFile(const QString& path, const bool recovery)
+{
+    SessionLoadResult loaded = SessionRepository::Load(path);
+    if (!loaded.IsValid())
+    {
+        QMessageBox::critical(this, QStringLiteral("Open session"), loaded.Error);
+        return false;
+    }
+    LoadingSession_ = true;
+    ClearCurrentClipUi();
+    QueueModel_->ReplaceClips(std::move(loaded.Session.Clips));
+    const int destinationIndex = loaded.Session.Destination.Mode == EOutputDestinationMode::FixedDirectory ? 1 : 0;
+    ApplicationSettings_.SourceRelativeSubdirectory = loaded.Session.Destination.SourceRelativeSubdirectory;
+    ApplicationSettings_.LastFixedOutputDirectory = loaded.Session.Destination.FixedDirectory;
+    DestinationModeCombo_->setCurrentIndex(destinationIndex);
+    DestinationEdit_->setText(destinationIndex == 1 ? loaded.Session.Destination.FixedDirectory
+                                                     : loaded.Session.Destination.SourceRelativeSubdirectory);
+    NamingTemplateEdit_->setText(loaded.Session.SelectedNamingTemplate);
+    RecursiveImportCheckBox_->setChecked(loaded.Session.RecursiveFolderImport);
+    Ui_->checkboxCopyMetadata->setChecked(loaded.Session.PreserveMetadata);
+    UserSettings_.CopyDateTime = loaded.Session.PreserveMetadata;
+    const int profileIndex = Ui_->qualityCombo->findData(loaded.Session.SelectedOutputProfile);
+    if (profileIndex >= 0) Ui_->qualityCombo->setCurrentIndex(profileIndex);
+    Ui_->keywordsTree->clear();
+    for (const QString& prefix : loaded.Session.SavedPrefixes)
+    {
+        auto* item = new QTreeWidgetItem(Ui_->keywordsTree);
+        item->setText(KKeywordTextColumn, prefix);
+    }
+    SessionState_.MarkSaved(recovery ? loaded.Session.ExplicitSessionPath : path);
+    LoadingSession_ = false;
+    for (const Clip& clip : QueueModel_->Clips())
+        if (QFileInfo::exists(clip.SourcePath)) MediaProbe_->Probe(clip.Id, clip.SourcePath);
+    if (QueueModel_->rowCount() > 0) OpenVideo(0);
+    if (recovery) SessionState_.MarkModified();
+    setWindowTitle(QStringLiteral("ClipCutter — %1%2")
+                       .arg(SessionState_.FilePath().isEmpty() ? QStringLiteral("Recovered Untitled")
+                                                              : QFileInfo(SessionState_.FilePath()).fileName(),
+                            SessionState_.IsDirty() ? QStringLiteral(" *") : QString()));
+    if (!loaded.Warnings.isEmpty())
+        QMessageBox::warning(this, QStringLiteral("Session sources"),
+                             loaded.Warnings.join(QLatin1Char('\n')) +
+                                 QStringLiteral("\n\nMissing entries remain in the queue and can be relinked by importing their replacement files."));
+    if (!recovery)
+    {
+        ApplicationSettings_.RecentSessionFiles.removeAll(path);
+        ApplicationSettings_.RecentSessionFiles.prepend(path);
+        while (ApplicationSettings_.RecentSessionFiles.size() > 10) ApplicationSettings_.RecentSessionFiles.removeLast();
+    }
+    UpdateFilterStatus();
+    UpdateOutputPreview();
+    return true;
+}
+
+bool ClipCutter::MainWindow::SaveSession()
+{
+    if (SessionState_.FilePath().isEmpty()) return SaveSessionAs();
+    SessionData session = CurrentSessionData();
+    session.ExplicitSessionPath = SessionState_.FilePath();
+    session.ExplicitSaveTimeUtc = QDateTime::currentDateTimeUtc();
+    QString error;
+    if (!SessionRepository::Save(SessionState_.FilePath(), session, &error))
+    {
+        QMessageBox::critical(this, QStringLiteral("Save session"), error);
+        return false;
+    }
+    SessionState_.MarkSaved(SessionState_.FilePath());
+    SessionRepository::RemoveRecovery();
+    setWindowTitle(QStringLiteral("ClipCutter — %1").arg(QFileInfo(SessionState_.FilePath()).fileName()));
+    ApplicationSettings_.RecentSessionFiles.removeAll(SessionState_.FilePath());
+    ApplicationSettings_.RecentSessionFiles.prepend(SessionState_.FilePath());
+    return true;
+}
+
+bool ClipCutter::MainWindow::SaveSessionAs()
+{
+    QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Save ClipCutter session"),
+                                                SessionState_.FilePath(),
+                                                QStringLiteral("ClipCutter Session (*.clipcutter.json)"));
+    if (path.isEmpty()) return false;
+    if (!path.endsWith(QStringLiteral(".clipcutter.json"), Qt::CaseInsensitive)) path += QStringLiteral(".clipcutter.json");
+    const QString previous = SessionState_.FilePath();
+    SessionState_.MarkSaved(path);
+    if (SaveSession()) return true;
+    if (previous.isEmpty()) SessionState_.Reset(); else SessionState_.MarkSaved(previous);
+    SessionState_.MarkModified();
+    return false;
+}
+
+void ClipCutter::MainWindow::ResetSettings()
+{
+    if (QMessageBox::question(this, QStringLiteral("Reset settings"),
+                              QStringLiteral("Reset all saved application settings to defaults?")) != QMessageBox::Yes)
+        return;
+    QString error;
+    if (!SettingsRepository_.Reset(&error)) QMessageBox::critical(this, QStringLiteral("Reset settings"), error);
+    else statusBar()->showMessage(QStringLiteral("Settings reset. Defaults apply after restart."), 6000);
+}
+
+void ClipCutter::MainWindow::RelinkMissingSources()
+{
+    for (const Clip& snapshot : QueueModel_->Clips())
+    {
+        if (QFileInfo::exists(snapshot.SourcePath)) continue;
+        const QString replacement = QFileDialog::getOpenFileName(
+            this, QStringLiteral("Relink %1").arg(snapshot.OriginalFileName),
+            QFileInfo(snapshot.SourcePath).absolutePath(), ClipImporter::FileDialogFilter());
+        if (replacement.isEmpty()) continue;
+        QString error;
+        if (!QueueModel_->RelinkClipSource(snapshot.Id, replacement, &error))
+        {
+            QMessageBox::warning(this, QStringLiteral("Relink source"), error);
+            continue;
+        }
+        if (const Clip* clip = QueueModel_->FindClip(snapshot.Id)) MediaProbe_->Probe(clip->Id, clip->SourcePath);
+    }
+}
+
+void ClipCutter::MainWindow::dragEnterEvent(QDragEnterEvent* event)
+{
+    if (!event->mimeData()->hasUrls()) return;
+    bool valid = false;
+    for (const QUrl& url : event->mimeData()->urls())
+    {
+        if (!url.isLocalFile()) continue;
+        const QFileInfo info(url.toLocalFile());
+        valid = valid || info.isDir() || (info.isFile() && ClipImporter::IsSupported(info.fileName()));
+    }
+    if (valid)
+    {
+        event->acceptProposedAction();
+        statusBar()->showMessage(QStringLiteral("Drop videos or folders to add them to the queue"));
+    }
+}
+
+void ClipCutter::MainWindow::dragLeaveEvent(QDragLeaveEvent* event)
+{
+    statusBar()->clearMessage();
+    QMainWindow::dragLeaveEvent(event);
+}
+
+void ClipCutter::MainWindow::dropEvent(QDropEvent* event)
+{
+    QStringList paths;
+    int remoteUrls = 0;
+    for (const QUrl& url : event->mimeData()->urls())
+    {
+        if (!url.isLocalFile()) { ++remoteUrls; continue; }
+        paths.append(QDir::cleanPath(QFileInfo(url.toLocalFile()).absoluteFilePath()));
+    }
+    if (!paths.isEmpty())
+    {
+        event->acceptProposedAction();
+        ImportPaths(paths);
+    }
+    if (remoteUrls > 0)
+        statusBar()->showMessage(QStringLiteral("Ignored %1 non-local URL(s); only local files and folders are accepted.").arg(remoteUrls), 7000);
+}
+
+void ClipCutter::MainWindow::closeEvent(QCloseEvent* event)
+{
+    if (ExportController_->IsActive() || !MaybeSaveChanges())
+    {
+        event->ignore();
+        return;
+    }
+    SaveApplicationSettings();
+    SessionRepository::RemoveRecovery();
+    event->accept();
 }

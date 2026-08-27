@@ -6,14 +6,14 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1280</width>
-    <height>720</height>
+    <width>1024</width>
+    <height>640</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
-    <width>1280</width>
-    <height>720</height>
+    <width>760</width>
+    <height>520</height>
    </size>
   </property>
   <property name="acceptDrops">
@@ -32,18 +32,6 @@
    <layout class="QGridLayout" name="gridLayout">
     <item row="4" column="4" rowspan="2" colspan="4">
      <widget class="QGroupBox" name="clipsBox">
-      <property name="minimumSize">
-       <size>
-        <width>400</width>
-        <height>0</height>
-       </size>
-      </property>
-      <property name="maximumSize">
-       <size>
-        <width>400</width>
-        <height>16777215</height>
-       </size>
-      </property>
       <property name="title">
        <string>Clips</string>
       </property>
@@ -187,18 +175,6 @@
       <layout class="QHBoxLayout" name="horizontalLayout">
        <item>
        <widget class="QPushButton" name="processButton">
-         <property name="minimumSize">
-          <size>
-           <width>150</width>
-           <height>0</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>150</width>
-           <height>16777215</height>
-          </size>
-         </property>
          <property name="text">
           <string>Process Clips</string>
          </property>
@@ -265,18 +241,6 @@
        </item>
        <item>
         <widget class="QComboBox" name="qualityCombo">
-         <property name="minimumSize">
-          <size>
-           <width>150</width>
-           <height>0</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>150</width>
-           <height>16777215</height>
-          </size>
-         </property>
          <property name="toolTip">
           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Copy&lt;/span&gt; - Very fast, and maintains original quality. Copies all video and audio data directly, may result in out-of-sync video/audio in some cases.&lt;br/&gt;&lt;br/&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Lowest&lt;/span&gt; - Quickest processing, worse looking video, and possibly larger file size.&lt;br/&gt;&lt;br/&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Low, Medium, High &lt;/span&gt;- Self explanatory in-betweens.&lt;br/&gt;&lt;br/&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Best&lt;/span&gt; - Slowest processing, better looking video, and possibly smaller file size.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
          </property>
@@ -393,12 +357,6 @@
     </item>
     <item row="4" column="2">
      <widget class="QGroupBox" name="playerBox">
-      <property name="minimumSize">
-       <size>
-        <width>850</width>
-        <height>0</height>
-       </size>
-      </property>
       <property name="title">
        <string>Player</string>
       </property>

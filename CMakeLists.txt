@@ -44,6 +44,10 @@ target_sources(clipcutter_core PRIVATE
     "${CLIPCUTTER_SOURCE_DIR}/Utility.h"
     "${CLIPCUTTER_SOURCE_DIR}/App/Models/ClipQueueModel.cpp"
     "${CLIPCUTTER_SOURCE_DIR}/App/Models/ClipQueueModel.h"
+    "${CLIPCUTTER_SOURCE_DIR}/App/Models/ClipQueueFilterModel.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/App/Models/ClipQueueFilterModel.h"
+    "${CLIPCUTTER_SOURCE_DIR}/App/Settings/SettingsRepository.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/App/Settings/SettingsRepository.h"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Clip/Clip.h"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Clip/Segment.cpp"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Clip/Segment.h"
@@ -65,6 +69,8 @@ target_sources(clipcutter_core PRIVATE
     "${CLIPCUTTER_SOURCE_DIR}/Core/Export/MetadataService.h"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Export/OutputPathPlanner.cpp"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Export/OutputPathPlanner.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/OutputDestination.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/OutputDestination.h"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Export/OutputProfile.cpp"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Export/OutputProfile.h"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Export/OutputVerifier.cpp"
@@ -76,6 +82,10 @@ target_sources(clipcutter_core PRIVATE
     "${CLIPCUTTER_SOURCE_DIR}/Core/Media/MediaInfo.h"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Media/MediaProbe.cpp"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Media/MediaProbe.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Naming/NamingTemplate.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Naming/NamingTemplate.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Session/SessionRepository.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Session/SessionRepository.h"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Diagnostics/StartupDiagnostics.cpp"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Diagnostics/StartupDiagnostics.h"
 )
@@ -157,6 +167,16 @@ if(BUILD_TESTING)
     target_compile_features(ClipCutterMediaCorrectnessTests PRIVATE cxx_std_17)
     clipcutter_configure_first_party_target(ClipCutterMediaCorrectnessTests)
     add_test(NAME ClipCutterMediaCorrectnessTests COMMAND ClipCutterMediaCorrectnessTests)
+
+    qt_add_executable(ClipCutterWorkflowPersistenceTests)
+    target_sources(ClipCutterWorkflowPersistenceTests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/WorkflowPersistenceTests.cpp"
+    )
+    target_include_directories(ClipCutterWorkflowPersistenceTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_link_libraries(ClipCutterWorkflowPersistenceTests PRIVATE clipcutter_core Qt6::Core Qt6::Test)
+    target_compile_features(ClipCutterWorkflowPersistenceTests PRIVATE cxx_std_17)
+    clipcutter_configure_first_party_target(ClipCutterWorkflowPersistenceTests)
+    add_test(NAME ClipCutterWorkflowPersistenceTests COMMAND ClipCutterWorkflowPersistenceTests)
     if(WIN32)
         set_tests_properties(ClipCutterTests PROPERTIES
             ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
@@ -165,6 +185,9 @@ if(BUILD_TESTING)
             ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
         )
         set_tests_properties(ClipCutterMediaCorrectnessTests PROPERTIES
+            ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+        )
+        set_tests_properties(ClipCutterWorkflowPersistenceTests PROPERTIES
             ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
         )
     endif()

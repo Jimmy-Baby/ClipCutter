@@ -5,6 +5,7 @@
 
 #include <QAbstractTableModel>
 #include <QSet>
+#include <QDate>
 
 #include <vector>
 
@@ -54,7 +55,10 @@ public:
         ExportProfileRole,
         ExportStateRole,
         ExportProgressRole,
-        ExportLogRole
+        ExportLogRole,
+        PrefixRole,
+        NamingTemplateRole,
+        MediaProbeRole
     };
 
     explicit ClipQueueModel(QObject* parent = nullptr);
@@ -69,6 +73,7 @@ public:
 
     void AddClip(Clip clip);
     void AddClips(QVector<Clip> clips);
+    void ReplaceClips(std::vector<Clip> clips);
     void ClearClips();
     bool RemoveEntries(const QSet<QUuid>& segmentIds);
 
@@ -83,13 +88,22 @@ public:
 
     bool UpdateSkipState(const QUuid& segmentId, bool skipped);
     void UpdateAllSkipStates(bool skipped);
+    bool UpdateSkipStates(const QSet<QUuid>& segmentIds, bool skipped);
+    bool InvertSkipStates(const QSet<QUuid>& segmentIds = {});
     bool UpdateOutputName(const QUuid& segmentId, const QString& outputFileName);
     bool UpdateOutputBaseName(const QUuid& segmentId, const QString& outputBaseName);
     bool UpdateTrimRange(const QUuid& segmentId, const TimeRange& range, QString* error = nullptr);
     bool UpdateMediaDuration(const QUuid& clipId, std::chrono::milliseconds duration, QString* error = nullptr);
     bool UpdateMediaInfo(const QUuid& clipId, const QString& expectedSourcePath, const MediaInfo& info);
+    bool RelinkClipSource(const QUuid& clipId, const QString& replacementPath, QString* error = nullptr);
     bool ApplyPrefix(const QUuid& segmentId, const QString& prefix);
     bool ClearPrefix(const QUuid& segmentId);
+    bool ApplyPrefixTo(const QSet<QUuid>& segmentIds, const QString& prefix);
+    bool ClearPrefixes(const QSet<QUuid>& segmentIds = {});
+    bool ApplyNamingTemplate(const QSet<QUuid>& segmentIds, const QString& pattern,
+                             const QDate& date = QDate::currentDate(), QString* error = nullptr);
+    bool ApplyExportProfile(const QSet<QUuid>& segmentIds, const QString& profileId);
+    bool ResetTrimRanges(const QSet<QUuid>& segmentIds = {});
     void ClearPrefixFromAll(const QString& prefix);
     void UpdateAllExportProfiles(const QString& profileId);
     bool UpdateExportState(const QUuid& segmentId, EExportState state);

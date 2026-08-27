@@ -1,6 +1,7 @@
 #include "Core/Import/ClipImporter.h"
 
 #include <QFileInfo>
+#include <QDirIterator>
 
 #include <algorithm>
 
@@ -41,11 +42,11 @@ ImportResult ClipImporter::Import(const QStringList& files, const std::optional<
             return result;
         }
 
-        const QFileInfoList entries = directory->entryInfoList(QDir::Files | QDir::Readable, QDir::Name);
-        for (const QFileInfo& entry : entries)
-        {
-            candidates.append(entry.absoluteFilePath());
-        }
+        const QDirIterator::IteratorFlag iteratorFlag = options.RecursiveDirectories ? QDirIterator::Subdirectories
+                                                                                      : QDirIterator::NoIteratorFlags;
+        QDirIterator iterator(directory->absolutePath(), QDir::Files | QDir::Readable | QDir::NoDotAndDotDot,
+                              iteratorFlag);
+        while (iterator.hasNext()) candidates.append(iterator.next());
     }
 
     std::sort(candidates.begin(), candidates.end(),
@@ -105,6 +106,30 @@ ImportResult ClipImporter::ImportFiles(const QStringList& files, const ImportOpt
 ImportResult ClipImporter::ImportDirectory(const QDir& directory, const ImportOptions& options) const
 {
     return Import({}, directory, options);
+}
+
+ImportResult ClipImporter::ImportPaths(const QStringList& paths, const ImportOptions& options) const
+{
+    QStringList files;
+    QStringList directories;
+    for (const QString& path : paths)
+    {
+        const QFileInfo info(path);
+        if (info.isDir()) directories.append(info.absoluteFilePath());
+        else files.append(path);
+    }
+    ImportResult combined = ImportFiles(files, options);
+    ImportOptions next = options;
+    for (const Clip& clip : combined.Imported) next.ExistingCanonicalPaths.insert(clip.SourcePath);
+    for (const QString& directory : directories)
+    {
+        ImportResult part = ImportDirectory(QDir(directory), next);
+        for (const Clip& clip : part.Imported) next.ExistingCanonicalPaths.insert(clip.SourcePath);
+        combined.Imported += std::move(part.Imported);
+        combined.Skipped += part.Skipped;
+        combined.Errors += part.Errors;
+    }
+    return combined;
 }
 
 QString ClipImporter::CanonicalPath(const QFileInfo& fileInfo)
