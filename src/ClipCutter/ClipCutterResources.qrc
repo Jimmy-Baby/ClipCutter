@@ -1,13 +1,13 @@
 <RCC>
     <qresource prefix="/icons">
-        <file>icons/backward-step-solid.svg</file>
-        <file>icons/e-solid.svg</file>
-        <file>icons/folder-open-regular.svg</file>
-        <file>icons/forward-step-solid.svg</file>
-        <file>icons/pause-solid.svg</file>
-        <file>icons/play-solid.svg</file>
-        <file>icons/s-solid.svg</file>
-        <file>icons/stop-solid.svg</file>
-        <file>icons/forward-fast-solid.svg</file>
+        <file alias="backward-step-solid.svg">Icons/backward-step-solid.svg</file>
+        <file alias="e-solid.svg">Icons/e-solid.svg</file>
+        <file alias="folder-open-regular.svg">Icons/folder-open-regular.svg</file>
+        <file alias="forward-step-solid.svg">Icons/forward-step-solid.svg</file>
+        <file alias="pause-solid.svg">Icons/pause-solid.svg</file>
+        <file alias="play-solid.svg">Icons/play-solid.svg</file>
+        <file alias="s-solid.svg">Icons/s-solid.svg</file>
+        <file alias="stop-solid.svg">Icons/stop-solid.svg</file>
+        <file alias="forward-fast-solid.svg">Icons/forward-fast-solid.svg</file>
     </qresource>
 </RCC>

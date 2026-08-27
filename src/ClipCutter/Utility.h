@@ -1,13 +1,13 @@
-#ifndef UTILITY_H
-#define UTILITY_H
+#ifndef CLIPCUTTER_UTILITY_H
+#define CLIPCUTTER_UTILITY_H
 
 #include <QDir>
 #include <QString>
 
-namespace Utility
+namespace ClipCutter::Utility
 {
-    QString GetTimeStringFromMilli(qint64 milliseconds);
-    bool PrepareOutputDirectory(const QDir& videoDirectory, QString& outputDirectory, QString& errorMessage);
-}
+QString GetTimeStringFromMilliseconds(qint64 milliseconds);
+bool PrepareOutputDirectory(const QDir& videoDirectory, QString& outputDirectory, QString& errorMessage);
+} // namespace ClipCutter::Utility
 
-#endif // UTILITY_H
+#endif

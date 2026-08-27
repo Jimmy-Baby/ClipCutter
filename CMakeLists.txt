@@ -40,20 +40,34 @@ add_library(clipcutter_core STATIC)
 target_sources(clipcutter_core PRIVATE
     "${CLIPCUTTER_SOURCE_DIR}/ClipLogic.cpp"
     "${CLIPCUTTER_SOURCE_DIR}/ClipLogic.h"
-    "${CLIPCUTTER_SOURCE_DIR}/FFmpeg.cpp"
-    "${CLIPCUTTER_SOURCE_DIR}/FFmpeg.h"
     "${CLIPCUTTER_SOURCE_DIR}/Utility.cpp"
     "${CLIPCUTTER_SOURCE_DIR}/Utility.h"
-    "${CLIPCUTTER_SOURCE_DIR}/app/models/ClipQueueModel.cpp"
-    "${CLIPCUTTER_SOURCE_DIR}/app/models/ClipQueueModel.h"
-    "${CLIPCUTTER_SOURCE_DIR}/core/clip/Clip.h"
-    "${CLIPCUTTER_SOURCE_DIR}/core/clip/Segment.cpp"
-    "${CLIPCUTTER_SOURCE_DIR}/core/clip/Segment.h"
-    "${CLIPCUTTER_SOURCE_DIR}/core/clip/TimeRange.cpp"
-    "${CLIPCUTTER_SOURCE_DIR}/core/clip/TimeRange.h"
-    "${CLIPCUTTER_SOURCE_DIR}/core/import/ClipImporter.cpp"
-    "${CLIPCUTTER_SOURCE_DIR}/core/import/ClipImporter.h"
-    "${CLIPCUTTER_SOURCE_DIR}/core/media/MediaInfo.h"
+    "${CLIPCUTTER_SOURCE_DIR}/App/Models/ClipQueueModel.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/App/Models/ClipQueueModel.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Clip/Clip.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Clip/Segment.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Clip/Segment.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Clip/TimeRange.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Clip/TimeRange.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/ExportJob.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/ExportQueueController.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/ExportQueueController.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/ExportResult.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/ExportState.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/ExportState.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/FfmpegCommand.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/FfmpegCommandBuilder.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/FfmpegCommandBuilder.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/FfmpegProgress.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/FfmpegProgressParser.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/FfmpegProgressParser.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/MetadataService.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/MetadataService.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/ProcessRunner.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Export/ProcessRunner.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Import/ClipImporter.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Import/ClipImporter.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Media/MediaInfo.h"
 )
 target_include_directories(clipcutter_core PUBLIC
     "$<BUILD_INTERFACE:${CLIPCUTTER_SOURCE_DIR}>"
@@ -67,9 +81,9 @@ clipcutter_configure_first_party_target(clipcutter_core)
 qt_add_executable(ClipCutter WIN32)
 target_sources(ClipCutter PRIVATE
     "${CLIPCUTTER_SOURCE_DIR}/Main.cpp"
-    "${CLIPCUTTER_SOURCE_DIR}/CCMainWindow.cpp"
-    "${CLIPCUTTER_SOURCE_DIR}/CCMainWindow.h"
-    "${CLIPCUTTER_SOURCE_DIR}/CCMainWindow.ui"
+    "${CLIPCUTTER_SOURCE_DIR}/MainWindow.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/MainWindow.h"
+    "${CLIPCUTTER_SOURCE_DIR}/MainWindow.ui"
     "${CLIPCUTTER_SOURCE_DIR}/ClipCutterResources.qrc"
 )
 target_include_directories(ClipCutter PRIVATE
@@ -106,8 +120,28 @@ if(BUILD_TESTING)
     clipcutter_configure_first_party_target(ClipCutterTests)
 
     add_test(NAME ClipCutterTests COMMAND ClipCutterTests)
+
+    qt_add_executable(ClipCutterExportTests)
+    target_sources(ClipCutterExportTests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/ExportEngineTests.cpp"
+    )
+    target_include_directories(ClipCutterExportTests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    )
+    target_link_libraries(ClipCutterExportTests PRIVATE
+        clipcutter_core
+        Qt6::Core
+        Qt6::Test
+    )
+    target_compile_features(ClipCutterExportTests PRIVATE cxx_std_17)
+    clipcutter_configure_first_party_target(ClipCutterExportTests)
+
+    add_test(NAME ClipCutterExportTests COMMAND ClipCutterExportTests)
     if(WIN32)
         set_tests_properties(ClipCutterTests PROPERTIES
+            ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+        )
+        set_tests_properties(ClipCutterExportTests PROPERTIES
             ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
         )
     endif()

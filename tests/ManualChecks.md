@@ -10,3 +10,8 @@
 8. Remove a keyword used by multiple clips. Confirm every affected clip returns to its own unprefixed output name.
 9. Select the first and last clips and invoke previous/next shortcuts. Confirm navigation remains in bounds.
 10. Exercise play/pause, stop, skip, set-start, set-end, rename, and keyword controls with a loaded clip.
+11. Export several valid clips. Confirm per-item state/progress, total progress, and the final succeeded count.
+12. Put an invalid input before a valid clip. Confirm the first item fails, its log is inspectable, the later item succeeds, and the summary does not say all work succeeded.
+13. Start a long export, resize and move the window, navigate the queue, and use playback controls. Confirm the UI remains responsive while logs and progress update.
+14. Cancel an active export. Confirm pending items become cancelled, graceful termination is attempted, incomplete temporary output is removed, and the summary reports cancellations.
+15. Retry failed and cancelled items. Confirm original paths, trim range, quality, and metadata settings are reused and progress restarts cleanly.

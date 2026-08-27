@@ -186,7 +186,7 @@
       </property>
       <layout class="QHBoxLayout" name="horizontalLayout">
        <item>
-        <widget class="QPushButton" name="processButton">
+       <widget class="QPushButton" name="processButton">
          <property name="minimumSize">
           <size>
            <width>150</width>
@@ -201,6 +201,36 @@
          </property>
          <property name="text">
           <string>Process Clips</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="cancelButton">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="text">
+          <string>Cancel</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="retryButton">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="text">
+          <string>Retry Failed/Cancelled</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="viewLogButton">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="text">
+          <string>View Error Log</string>
          </property>
         </widget>
        </item>
@@ -461,7 +491,7 @@
   <action name="actionOpenFolder">
    <property name="icon">
     <iconset resource="ClipCutterResources.qrc">
-     <normaloff>:/icons/icons/folder-open-regular.svg</normaloff>:/icons/icons/folder-open-regular.svg</iconset>
+     <normaloff>:/icons/folder-open-regular.svg</normaloff>:/icons/folder-open-regular.svg</iconset>
    </property>
    <property name="text">
     <string>Open Folder</string>
@@ -476,7 +506,7 @@
   <action name="actionPlayPause">
    <property name="icon">
     <iconset resource="ClipCutterResources.qrc">
-     <normaloff>:/icons/icons/play-solid.svg</normaloff>:/icons/icons/play-solid.svg</iconset>
+     <normaloff>:/icons/play-solid.svg</normaloff>:/icons/play-solid.svg</iconset>
    </property>
    <property name="text">
     <string>Play/Pause</string>
@@ -491,7 +521,7 @@
   <action name="actionNext">
    <property name="icon">
     <iconset resource="ClipCutterResources.qrc">
-     <normaloff>:/icons/icons/forward-step-solid.svg</normaloff>:/icons/icons/forward-step-solid.svg</iconset>
+     <normaloff>:/icons/forward-step-solid.svg</normaloff>:/icons/forward-step-solid.svg</iconset>
    </property>
    <property name="text">
     <string>Next</string>
@@ -506,7 +536,7 @@
   <action name="actionPrev">
    <property name="icon">
     <iconset resource="ClipCutterResources.qrc">
-     <normaloff>:/icons/icons/backward-step-solid.svg</normaloff>:/icons/icons/backward-step-solid.svg</iconset>
+     <normaloff>:/icons/backward-step-solid.svg</normaloff>:/icons/backward-step-solid.svg</iconset>
    </property>
    <property name="text">
     <string>Prev</string>
@@ -521,7 +551,7 @@
   <action name="actionSetStart">
    <property name="icon">
     <iconset resource="ClipCutterResources.qrc">
-     <normaloff>:/icons/icons/s-solid.svg</normaloff>:/icons/icons/s-solid.svg</iconset>
+     <normaloff>:/icons/s-solid.svg</normaloff>:/icons/s-solid.svg</iconset>
    </property>
    <property name="text">
     <string>Set Start</string>
@@ -536,7 +566,7 @@
   <action name="actionSetEnd">
    <property name="icon">
     <iconset resource="ClipCutterResources.qrc">
-     <normaloff>:/icons/icons/e-solid.svg</normaloff>:/icons/icons/e-solid.svg</iconset>
+     <normaloff>:/icons/e-solid.svg</normaloff>:/icons/e-solid.svg</iconset>
    </property>
    <property name="text">
     <string>Set End</string>
@@ -551,7 +581,7 @@
   <action name="actionStop">
    <property name="icon">
     <iconset resource="ClipCutterResources.qrc">
-     <normaloff>:/icons/icons/stop-solid.svg</normaloff>:/icons/icons/stop-solid.svg</iconset>
+     <normaloff>:/icons/stop-solid.svg</normaloff>:/icons/stop-solid.svg</iconset>
    </property>
    <property name="text">
     <string>Stop</string>
@@ -566,7 +596,7 @@
   <action name="actionSkip">
    <property name="icon">
     <iconset resource="ClipCutterResources.qrc">
-     <normaloff>:/icons/icons/forward-fast-solid.svg</normaloff>:/icons/icons/forward-fast-solid.svg</iconset>
+     <normaloff>:/icons/forward-fast-solid.svg</normaloff>:/icons/forward-fast-solid.svg</iconset>
    </property>
    <property name="text">
     <string>Skip</string>
@@ -581,7 +611,7 @@
   <action name="actionOpenFiles">
    <property name="icon">
     <iconset resource="ClipCutterResources.qrc">
-     <normaloff>:/icons/icons/folder-open-regular.svg</normaloff>:/icons/icons/folder-open-regular.svg</iconset>
+     <normaloff>:/icons/folder-open-regular.svg</normaloff>:/icons/folder-open-regular.svg</iconset>
    </property>
    <property name="text">
     <string>Open File(s)</string>

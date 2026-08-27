@@ -1,34 +1,14 @@
-#include "CCMainWindow.h"
-#include "FFmpeg.h"
+#include "MainWindow.h"
 
 #include <QApplication>
-#include <QMessageBox>
-#include <Windows.h>
 
-int main(int argc, char *argv[])
+int main(int argumentCount, char* arguments[])
 {
-    QApplication a(argc, argv);
-    QApplication::setStyle("fusion");
+    QApplication application(argumentCount, arguments);
+    QApplication::setStyle(QStringLiteral("fusion"));
 
-    // Check if FFmpeg is working correctly
-    if (clipcutter::FFmpeg::FFmpegTest() == false)
-    {
-        DWORD lastError = GetLastError();
-
-        if (lastError == ERROR_FILE_NOT_FOUND)
-        {
-            QMessageBox::critical(nullptr, "FFmpeg error", "FFmpeg could not be found. Ensure ClipCutter is running from its program folder. Closing...");
-            return 0;
-        }
-        else
-        {
-            QMessageBox::critical(nullptr, "FFmpeg error", "An unknown FFmpeg error occurred. Ensure ClipCutter is running from its program folder. Closing...");
-            return 0;
-        }
-    }
-
-    CClipCutterWindow w;
-    w.show();
+    ClipCutter::MainWindow window;
+    window.show();
 
     return QApplication::exec();
 }

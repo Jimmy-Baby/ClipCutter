@@ -79,8 +79,50 @@ Release archives already include FFmpeg and the required Qt runtime files. Local
 - `clipcutter_core`: reusable queue, naming, utility, and FFmpeg implementation.
 - `ClipCutter`: `Main.cpp`, the main window/UI form, and Qt resources.
 - `ClipCutterTests`: Qt Test regression tests registered with CTest.
+- `ClipCutterExportTests`: deterministic export-engine tests using an injected process runner.
 
-CMake generates UIC, MOC, and RCC output inside the selected build directory. Generated headers such as `ui_CCMainWindow.h` must never be generated in or committed from the source tree.
+CMake generates UIC, MOC, and RCC output inside the selected build directory. Generated headers such as `ui_MainWindow.h` must never be generated in or committed from the source tree.
+
+### Export engine
+
+Exports run sequentially through an event-driven `ExportQueueController`. Each FFmpeg invocation uses a `QProcess` runner with separate program and argument values; the GUI thread never waits for process startup or completion.
+
+The state machine is explicit:
+
+```text
+Pending -> Preparing -> Running -> Finalising -> Succeeded
+    |          |           |           |
+    |          +-----------+           +-> Failed
+    |                  |   +--------------> Failed
+    |                  +-> Cancelling -> Cancelled
+    +-> Cancelled
+    +-> Skipped
+
+Failed/Cancelled -> Pending (explicit retry only)
+```
+
+Invalid transitions and duplicate process-completion notifications are ignored. An ordinary failure completes that item and advances the queue. Queue completion reports succeeded, failed, skipped, and cancelled counts rather than treating a partial failure as success.
+
+FFmpeg writes to a job-specific temporary file in the destination directory. Successful output enters `Finalising`, replaces the requested final path, and optionally copies source timestamps through `MetadataService`. Cancellation marks unstarted jobs without launching them, asks the active process to terminate, and uses a timer to force a kill if needed. Incomplete temporary output is removed. Failed and cancelled jobs retain their immutable command settings and are retried only through an explicit user action.
+
+Progress is read incrementally from `-progress pipe:1`. The parser retains partial lines between reads and accepts `out_time_us`, `out_time_ms`, and `out_time`. Known segment durations produce clamped item progress and duration-weighted total progress; unknown durations are indeterminate at item level and use an average-duration/job-count fallback for the total. `progress=end` updates progress only—success still requires a normal zero-code process exit.
+
+Run the ordinary tests without FFmpeg:
+
+```powershell
+cmake --preset debug
+cmake --build --preset debug
+ctest --preset debug
+```
+
+To enable the optional integration case, set `CLIPCUTTER_TEST_FFMPEG` to an FFmpeg executable before running `ClipCutterExportTests` or CTest:
+
+```powershell
+$env:CLIPCUTTER_TEST_FFMPEG = "C:\path\to\ffmpeg.exe"
+ctest --preset debug
+```
+
+The existing Copy/Lowest/Low/Medium/High/Highest presets and source-compatible output extensions are intentionally retained. Output-profile redesign, advanced container/codec selection, ffprobe inspection, persistence, and multi-segment editing are deferred.
 
 ## Contributing
 
