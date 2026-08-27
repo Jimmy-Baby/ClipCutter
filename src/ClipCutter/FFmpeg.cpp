@@ -6,7 +6,7 @@
 
 #include "FFmpeg.h"
 
-namespace FFmpeg
+namespace clipcutter::FFmpeg
 {
     bool ExecuteFFmpeg(const QString& args, bool showFfmpeg)
 	{
@@ -45,7 +45,7 @@ namespace FFmpeg
 		return result;
 	}
 
-    QString ConstructCmdArgs(const QueueItem* item, const QString& outputDirectory, EReEncodeQuality quality)
+    QString ConstructCmdArgs(const ExportSegment& segment, const QString& outputDirectory, ReEncodeQuality quality)
 	{
 		QString arguments;
 
@@ -53,42 +53,43 @@ namespace FFmpeg
 		arguments += " -y";
 
 		// Tells ffmpeg the input path
-		arguments += QString(" -i \"%1\"").arg(QDir::toNativeSeparators(item->OriginalPath));
+        arguments += QString(" -i \"%1\"").arg(QDir::toNativeSeparators(segment.sourcePath));
 
         // Tells ffmpeg the start time
-        arguments += QString(" -ss %1ms").arg(item->StartTimeMs);
+        arguments += QString(" -ss %1ms").arg(segment.range.start().count());
 
 		// Tells ffmpeg the end time
-		arguments += QString(" -to %1ms").arg(item->EndTimeMs);
+        arguments += QString(" -to %1ms").arg(segment.range.end().count());
 
 		// Construct output path
-        const QString outputPath = QDir::toNativeSeparators(outputDirectory + QDir::separator() + item->GetOutputName());
+        const QString outputPath = QDir::toNativeSeparators(
+            QDir(outputDirectory).absoluteFilePath(segment.outputFileName));
 
 
         // Tells ffmpeg the encoding settings and output directory
         switch (quality)
         {
-        case QUALITY_COPY:
+        case ReEncodeQuality::Copy:
             arguments += QString(" -c:v copy -c:a copy \"%1\"").arg(outputPath);
             break;
 
-        case QUALITY_LOWEST:
+        case ReEncodeQuality::Lowest:
             arguments += QString(" -c:v libx264 -crf 35 -preset faster -c:a copy \"%1\"").arg(outputPath);
             break;
 
-        case QUALITY_LOW:
+        case ReEncodeQuality::Low:
             arguments += QString(" -c:v libx264 -crf 30 -preset fast -c:a copy \"%1\"").arg(outputPath);
             break;
 
-        case QUALITY_MEDIUM:
+        case ReEncodeQuality::Medium:
             arguments += QString(" -c:v libx264 -crf 25 -preset fast -c:a copy \"%1\"").arg(outputPath);
             break;
 
-        case QUALITY_HIGH:
+        case ReEncodeQuality::High:
             arguments += QString(" -c:v libx264 -crf 20 -preset medium -c:a copy \"%1\"").arg(outputPath);
             break;
 
-        case QUALITY_HIGHEST:
+        case ReEncodeQuality::Highest:
             arguments += QString(" -c:v libx264 -crf 15 -preset slow -c:a copy \"%1\"").arg(outputPath);
             break;
         }
@@ -96,9 +97,13 @@ namespace FFmpeg
 		return arguments;
 	}
 
-    void ProcessQueueItem(const QueueItem* item, const QString& outputDirectory, EReEncodeQuality quality, bool showFfmpeg)
+    void ProcessSegment(
+        const ExportSegment& segment,
+        const QString& outputDirectory,
+        ReEncodeQuality quality,
+        bool showFfmpeg)
 	{
-        const QString arguments = ConstructCmdArgs(item, outputDirectory, quality);
+        const QString arguments = ConstructCmdArgs(segment, outputDirectory, quality);
         ExecuteFFmpeg(arguments, showFfmpeg);
 	}
 

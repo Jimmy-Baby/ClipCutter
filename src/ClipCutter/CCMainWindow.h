@@ -1,21 +1,19 @@
 #ifndef CCMAINWINDOW_H
 #define CCMAINWINDOW_H
 
+#include "app/models/ClipQueueModel.h"
+#include "core/import/ClipImporter.h"
+
 #include <QDir>
 #include <QIcon>
 #include <QMainWindow>
-#include <QStringList>
+#include <QUuid>
 
-#include <memory>
-#include <vector>
-
-#include "QueueItem.h"
-
-class QTreeWidgetItem;
-class QMediaPlayer;
-class QVideoWidget;
 class QAudioOutput;
-class QSlider;
+class QMediaPlayer;
+class QModelIndex;
+class QTreeWidgetItem;
+class QVideoWidget;
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class ClipCutterWindow; }
@@ -26,8 +24,8 @@ class CClipCutterWindow : public QMainWindow
     Q_OBJECT
 
 public:
-    CClipCutterWindow(QWidget *parent = nullptr);
-    ~CClipCutterWindow();
+    explicit CClipCutterWindow(QWidget* parent = nullptr);
+    ~CClipCutterWindow() override;
 
 private:
     void ActionOpenFolderTriggered();
@@ -39,22 +37,21 @@ private:
     void ActionStopTriggered();
     void ActionSetStartTriggered();
     void ActionSetEndTriggered();
-
     void OnVolumeChanged(int volume);
     void OnPlayerDurationChanged(qint64 duration);
     void OnPlayerPositionChanged(qint64 position);
-    void OnVideoListItemChanged(QTreeWidgetItem* curr, QTreeWidgetItem* prev);
+    void OnClipSelectionChanged(const QModelIndex& current, const QModelIndex& previous);
     void OnVideoNameChanged(const QString& newName);
-    void OnKeywordChanged(QTreeWidgetItem* curr, QTreeWidgetItem* prev);
-
-    int GetVideoIndexFromTreeItem(const QTreeWidgetItem* treeItem) const;
+    void OnKeywordChanged(QTreeWidgetItem* current, QTreeWidgetItem* previous);
     void UpdateStartEndUI();
     void UpdateKeywordUI();
     void UpdateCurrentVideoName();
     void UpdateActionStates();
     void ClearCurrentClipUI();
-    void LoadVideoFiles(const QStringList& filePaths, const QDir& directory, const QString& preparedOutputDirectory);
-    void OpenVideo(int videoIndex);
+    void LoadImportedClips(clipcutter::ImportResult result, const QDir& directory,
+                           const QString& preparedOutputDirectory);
+    void PresentImportMessages(const clipcutter::ImportResult& result);
+    void OpenVideo(int row);
     void DisableActions();
     void EnableActions();
     void ProcessClips();
@@ -62,18 +59,21 @@ private:
     void AddKeyword();
     void RemoveKeyword();
     void UseKeyword();
+    clipcutter::Clip* currentClip();
+    const clipcutter::Clip* currentClip() const;
+    clipcutter::Segment* currentSegment();
+    const clipcutter::Segment* currentSegment() const;
 
-    // UI
     Ui::ClipCutterWindow* ui;
     QMediaPlayer* player;
     QVideoWidget* videoWidget;
     QAudioOutput* audioOutput;
     QIcon playIcon;
     QIcon pauseIcon;
-
-    // Videos
-    QueueItem* currentVideo;
-    std::vector<std::unique_ptr<QueueItem>> videoList;
+    clipcutter::ClipQueueModel* queueModel;
+    clipcutter::ClipImporter clipImporter;
+    QUuid currentClipId;
+    QUuid currentSegmentId;
     QDir videoDirectory;
     QString outputDirectory;
 

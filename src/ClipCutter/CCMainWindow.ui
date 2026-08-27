@@ -55,32 +55,10 @@
          </property>
          <layout class="QGridLayout" name="gridLayout_3">
           <item row="4" column="0">
-           <widget class="QTreeWidget" name="clipsTree">
-            <property name="indentation">
-             <number>0</number>
-            </property>
-            <property name="animated">
+           <widget class="QTableView" name="clipsTable">
+            <property name="sortingEnabled">
              <bool>false</bool>
             </property>
-            <property name="headerHidden">
-             <bool>false</bool>
-            </property>
-            <property name="expandsOnDoubleClick">
-             <bool>true</bool>
-            </property>
-            <attribute name="headerDefaultSectionSize">
-             <number>35</number>
-            </attribute>
-            <column>
-             <property name="text">
-              <string>Skip?</string>
-             </property>
-            </column>
-            <column>
-             <property name="text">
-              <string>Name</string>
-             </property>
-            </column>
            </widget>
           </item>
           <item row="3" column="0">

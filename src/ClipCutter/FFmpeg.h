@@ -3,12 +3,29 @@
 
 #include <QString>
 
-#include "QueueItem.h"
+#include "app/models/ClipQueueModel.h"
+
+namespace clipcutter
+{
+enum class ReEncodeQuality
+{
+    Copy,
+    Lowest,
+    Low,
+    Medium,
+    High,
+    Highest
+};
 
 namespace FFmpeg
 {
-    void ProcessQueueItem(const QueueItem* item, const QString& outputDirectory, EReEncodeQuality quality, bool showFfmpeg);
+    void ProcessSegment(
+        const ExportSegment& segment,
+        const QString& outputDirectory,
+        ReEncodeQuality quality,
+        bool showFfmpeg);
     bool FFmpegTest();
+}
 }
 
 #endif // FFMPEG_H

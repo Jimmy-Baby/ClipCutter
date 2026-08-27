@@ -1,40 +1,58 @@
-#include <QAudioOutput>
-#include <QFileDialog>
-#include <QFileInfo>
-#include <QMediaPlayer>
-#include <QMessageBox>
-#include <QSignalBlocker>
-#include <QSlider>
-#include <QTreeWidgetItem>
-#include <QVideoWidget>
-#include <qt_windows.h>
-
-#include <limits>
-
 #include "CCMainWindow.h"
+
 #include "ClipLogic.h"
 #include "FFmpeg.h"
-#include "ui_CCMainWindow.h"
 #include "Utility.h"
+#include "ui_CCMainWindow.h"
+
+#include <QAudioOutput>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QHeaderView>
+#include <QItemSelectionModel>
+#include <QLineEdit>
+#include <QMediaPlayer>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QSignalBlocker>
+#include <QSlider>
+#include <QTableView>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QVideoWidget>
+#include <Windows.h>
+
+#include <chrono>
+#include <limits>
+#include <utility>
 
 namespace
 {
-    constexpr int ClipSkipColumn = 0;
-    constexpr int ClipNameColumn = 1;
-    constexpr int KeywordUseColumn = 0;
-    constexpr int KeywordTextColumn = 1;
+constexpr int KeywordUseColumn = 0;
+constexpr int KeywordTextColumn = 1;
 }
 
-CClipCutterWindow::CClipCutterWindow(QWidget *parent)
+CClipCutterWindow::CClipCutterWindow(QWidget* parent)
     : QMainWindow(parent),
       ui(new Ui::ClipCutterWindow),
+      player(nullptr),
+      videoWidget(nullptr),
+      audioOutput(nullptr),
       playIcon(QStringLiteral(":/icons/icons/play-solid.svg")),
       pauseIcon(QStringLiteral(":/icons/icons/pause-solid.svg")),
-      currentVideo(nullptr)
+      queueModel(new clipcutter::ClipQueueModel(this))
 {
     ui->setupUi(this);
+    ui->clipsTable->setModel(queueModel);
+    ui->clipsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    ui->clipsTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    ui->clipsTable->setAlternatingRowColors(true);
+    ui->clipsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    ui->clipsTable->horizontalHeader()->setSectionResizeMode(
+        clipcutter::ClipQueueModel::OutputNameColumn, QHeaderView::Stretch);
 
-    // Connect qt actions
     connect(ui->actionOpenFolder, &QAction::triggered, this, &CClipCutterWindow::ActionOpenFolderTriggered);
     connect(ui->actionOpenFiles, &QAction::triggered, this, &CClipCutterWindow::ActionOpenFilesTriggered);
     connect(ui->actionPlayPause, &QAction::triggered, this, &CClipCutterWindow::ActionPlayPauseTriggered);
@@ -45,152 +63,104 @@ CClipCutterWindow::CClipCutterWindow(QWidget *parent)
     connect(ui->actionSetStart, &QAction::triggered, this, &CClipCutterWindow::ActionSetStartTriggered);
     connect(ui->actionSetEnd, &QAction::triggered, this, &CClipCutterWindow::ActionSetEndTriggered);
     connect(ui->actionProcessClips, &QAction::triggered, this, &CClipCutterWindow::ProcessClips);
-
-    connect(ui->clipsTree, &QTreeWidget::currentItemChanged, this, &CClipCutterWindow::OnVideoListItemChanged);
-    connect(ui->clipNameEdit, &QLineEdit::textChanged, this, &CClipCutterWindow::OnVideoNameChanged);
+    connect(ui->clipsTable->selectionModel(), &QItemSelectionModel::currentChanged,
+            this, &CClipCutterWindow::OnClipSelectionChanged);
+    connect(ui->clipNameEdit, &QLineEdit::textEdited, this, &CClipCutterWindow::OnVideoNameChanged);
     connect(ui->processButton, &QPushButton::pressed, this, &CClipCutterWindow::ProcessClips);
     connect(ui->skipAllButton, &QPushButton::pressed, this, &CClipCutterWindow::MarkAllAsSkipped);
-    ui->checkboxCopyMetadata->setCheckState(Qt::CheckState::Checked);
+    ui->checkboxCopyMetadata->setCheckState(Qt::Checked);
     connect(ui->checkboxCopyMetadata, &QCheckBox::checkStateChanged, this, [this](Qt::CheckState state)
     {
-        userSettings.copyDateTime = state == Qt::CheckState::Checked;
+        userSettings.copyDateTime = state == Qt::Checked;
     });
-
     connect(ui->buttonAddKeyword, &QPushButton::pressed, this, &CClipCutterWindow::AddKeyword);
     connect(ui->buttonRemoveSelected, &QPushButton::pressed, this, &CClipCutterWindow::RemoveKeyword);
     connect(ui->buttonUseSelected, &QPushButton::pressed, this, &CClipCutterWindow::UseKeyword);
     connect(ui->keywordsTree, &QTreeWidget::currentItemChanged, this, &CClipCutterWindow::OnKeywordChanged);
 
-    // Setup media player
     videoWidget = new QVideoWidget(ui->playerBox);
     ui->playerLayout->addWidget(videoWidget);
-
     player = new QMediaPlayer(this);
     player->setVideoOutput(videoWidget);
-
     audioOutput = new QAudioOutput(this);
     player->setAudioOutput(audioOutput);
-
-    // Adjust slider properties when player changes
     connect(player, &QMediaPlayer::durationChanged, this, &CClipCutterWindow::OnPlayerDurationChanged);
     connect(player, &QMediaPlayer::positionChanged, this, &CClipCutterWindow::OnPlayerPositionChanged);
-
-    // Adjust player video position when slider is dragged by user
     connect(ui->timelineSlider, &QSlider::sliderMoved, player, &QMediaPlayer::setPosition);
-
-    // Adjust player volume
     audioOutput->setVolume(1.0f);
     connect(ui->volumeSlider, &QSlider::sliderMoved, this, &CClipCutterWindow::OnVolumeChanged);
-
-    // Setup quality dropdown
-    QStringList qualityItems;
-    qualityItems << "Copy";
-    qualityItems << "Lowest";
-    qualityItems << "Low";
-    qualityItems << "Medium";
-    qualityItems << "High";
-    qualityItems << "Best";
-    ui->qualityCombo->addItems(qualityItems);
-
+    ui->qualityCombo->addItems({ QStringLiteral("Copy"), QStringLiteral("Lowest"), QStringLiteral("Low"),
+                                 QStringLiteral("Medium"), QStringLiteral("High"), QStringLiteral("Best") });
+    connect(ui->qualityCombo, &QComboBox::currentTextChanged, queueModel,
+            [this](const QString& text) { queueModel->updateAllExportProfiles(text.toLower()); });
     ClearCurrentClipUI();
 }
-
 
 CClipCutterWindow::~CClipCutterWindow()
 {
     delete ui;
 }
 
-
 void CClipCutterWindow::ActionOpenFolderTriggered()
 {
-    const QFileDialog::Options dialogFlags = QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks;
-    const QString folderString = QFileDialog::getExistingDirectory(this, tr("Open Directory"), "/home", dialogFlags);
-
-    if (folderString.isEmpty())
+    const QString folder = QFileDialog::getExistingDirectory(
+        this, tr("Open Directory"), QStringLiteral("/home"),
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+    if (folder.isEmpty())
     {
         return;
     }
-
-    const QDir selectedDirectory(folderString);
-    const QStringList videoNames = selectedDirectory.entryList(
-        { QStringLiteral("*.mp4"), QStringLiteral("*.mkv"), QStringLiteral("*.avi"), QStringLiteral("*.mov") },
-        QDir::Files,
-        QDir::Name);
-
-    if (videoNames.isEmpty())
+    const QDir directory(folder);
+    clipcutter::ImportResult result = clipImporter.importDirectory(directory);
+    if (result.imported.isEmpty())
     {
-        QMessageBox::information(
-            this,
-            QStringLiteral("ClipCutter"),
-            QStringLiteral("No supported video files were found in:\n%1").arg(selectedDirectory.absolutePath()));
+        PresentImportMessages(result);
+        QMessageBox::information(this, QStringLiteral("ClipCutter"),
+                                 QStringLiteral("No supported video files were found in:\n%1")
+                                     .arg(directory.absolutePath()));
         return;
     }
-
     QString preparedOutputDirectory;
     QString outputError;
-    if (!Utility::PrepareOutputDirectory(selectedDirectory, preparedOutputDirectory, outputError))
+    if (!Utility::PrepareOutputDirectory(directory, preparedOutputDirectory, outputError))
     {
         QMessageBox::critical(this, QStringLiteral("ClipCutter"), outputError);
         return;
     }
-
-    QStringList filePaths;
-    filePaths.reserve(videoNames.size());
-    for (const QString& videoName : videoNames)
-    {
-        filePaths.append(selectedDirectory.absoluteFilePath(videoName));
-    }
-
-    LoadVideoFiles(filePaths, selectedDirectory, preparedOutputDirectory);
+    LoadImportedClips(std::move(result), directory, preparedOutputDirectory);
 }
-
 
 void CClipCutterWindow::ActionOpenFilesTriggered()
 {
-    const QString fileFilter = tr("Video Files (*.mp4 *.mkv *.avi *.mov)");
-    const QStringList filePaths = QFileDialog::getOpenFileNames(this, tr("Open File"), "/home", fileFilter);
-
-    if (filePaths.isEmpty())
+    const QStringList paths = QFileDialog::getOpenFileNames(
+        this, tr("Open File"), QStringLiteral("/home"), clipcutter::ClipImporter::fileDialogFilter());
+    if (paths.isEmpty())
     {
         return;
     }
-
-    const QFileInfo firstFileInfo(filePaths.constFirst());
-
-    for (const QString& filePath : filePaths)
+    clipcutter::ImportResult result = clipImporter.importFiles(paths);
+    if (result.imported.isEmpty())
     {
-        const QFileInfo fileInfo(filePath);
-        if (!fileInfo.exists() || !fileInfo.isFile())
-        {
-            QMessageBox::warning(
-                this,
-                QStringLiteral("ClipCutter"),
-                QStringLiteral("A selected video file is unavailable:\n%1").arg(fileInfo.absoluteFilePath()));
-            return;
-        }
+        PresentImportMessages(result);
+        return;
     }
-
-    const QDir selectedDirectory = firstFileInfo.dir();
+    const QDir directory = QFileInfo(result.imported.constFirst().sourcePath).dir();
     QString preparedOutputDirectory;
     QString outputError;
-    if (!Utility::PrepareOutputDirectory(selectedDirectory, preparedOutputDirectory, outputError))
+    if (!Utility::PrepareOutputDirectory(directory, preparedOutputDirectory, outputError))
     {
         QMessageBox::critical(this, QStringLiteral("ClipCutter"), outputError);
         return;
     }
-
-    LoadVideoFiles(filePaths, selectedDirectory, preparedOutputDirectory);
+    LoadImportedClips(std::move(result), directory, preparedOutputDirectory);
 }
-
 
 void CClipCutterWindow::ActionPlayPauseTriggered()
 {
-    if (currentVideo == nullptr)
+    if (currentClip() == nullptr)
     {
         return;
     }
-
     if (player->isPlaying())
     {
         ui->actionPlayPause->setIcon(playIcon);
@@ -203,261 +173,175 @@ void CClipCutterWindow::ActionPlayPauseTriggered()
     }
 }
 
-
 void CClipCutterWindow::ActionNextTriggered()
 {
-    if (currentVideo == nullptr)
+    const int row = queueModel->rowForSegment(currentSegmentId);
+    if (row >= 0 && row + 1 < queueModel->rowCount())
     {
-        return;
+        OpenVideo(row + 1);
     }
-
-    const int currentIndex = currentVideo->ListIndex;
-    const int nextIndex = currentIndex + 1;
-
-    // If we are at end of list, do nothing
-    if (nextIndex < 0 || nextIndex >= static_cast<int>(videoList.size()))
-    {
-        return;
-    }
-
-    OpenVideo(nextIndex);
 }
-
 
 void CClipCutterWindow::ActionSkipTriggered()
 {
-    if (currentVideo == nullptr)
+    if (!currentSegmentId.isNull())
     {
-        return;
+        queueModel->updateSkipState(currentSegmentId, true);
+        ActionNextTriggered();
+        UpdateActionStates();
     }
-
-    currentVideo->Skip = true;
-    currentVideo->TreeItem->setCheckState(ClipSkipColumn, Qt::CheckState::Checked);
-
-    ActionNextTriggered();
-    UpdateActionStates();
 }
 
 void CClipCutterWindow::ActionPrevTriggered()
 {
-    if (currentVideo == nullptr)
+    const int row = queueModel->rowForSegment(currentSegmentId);
+    if (row > 0)
     {
-        return;
+        OpenVideo(row - 1);
     }
-
-    const int currentIndex = currentVideo->ListIndex;
-
-    // If we are at start of list, do nothing
-    if (currentIndex == 0)
-    {
-        return;
-    }
-
-    OpenVideo(currentIndex - 1);
 }
-
 
 void CClipCutterWindow::ActionStopTriggered()
 {
-    if (currentVideo == nullptr)
+    if (currentClip() != nullptr)
     {
-        return;
+        ui->actionPlayPause->setIcon(playIcon);
+        player->stop();
     }
-
-    ui->actionPlayPause->setIcon(playIcon);
-    player->stop();
 }
-
 
 void CClipCutterWindow::ActionSetStartTriggered()
 {
-    if (currentVideo == nullptr)
+    const clipcutter::Clip* clip = currentClip();
+    const clipcutter::Segment* segment = currentSegment();
+    if (clip == nullptr || segment == nullptr)
     {
         return;
     }
-
-    const qint64 videoTimeMs = player->position();
-
-    // Make sure the start time we are going to set is not after the currently set EndTimeMs
-    if (videoTimeMs >= currentVideo->EndTimeMs)
+    QString error;
+    const auto range = clipcutter::TimeRange::create(
+        std::chrono::milliseconds{player->position()}, segment->range.end(), clip->mediaInfo.duration, true, &error);
+    if (!range.has_value() || !queueModel->updateTrimRange(currentSegmentId, *range, &error))
     {
-        QMessageBox::warning(this, "ClipCutter", "Start point must be before end point", QMessageBox::Ok);
+        QMessageBox::warning(this, QStringLiteral("ClipCutter"), error);
         return;
     }
-
-    // Set the time
-    currentVideo->StartTimeMs = videoTimeMs;
-
-    // Update start/end display
     UpdateStartEndUI();
 }
-
 
 void CClipCutterWindow::ActionSetEndTriggered()
 {
-    // First check if a video is loaded
-    if (currentVideo == nullptr)
+    const clipcutter::Clip* clip = currentClip();
+    const clipcutter::Segment* segment = currentSegment();
+    if (clip == nullptr || segment == nullptr)
     {
         return;
     }
-
-    const qint64 videoTimeMs = player->position();
-
-    // Make sure the end time we are going to set is after the currently set StartTimeMs
-    if (videoTimeMs <= currentVideo->StartTimeMs)
+    QString error;
+    const auto range = clipcutter::TimeRange::create(
+        segment->range.start(), std::chrono::milliseconds{player->position()}, clip->mediaInfo.duration, true, &error);
+    if (!range.has_value() || !queueModel->updateTrimRange(currentSegmentId, *range, &error))
     {
-        QMessageBox::warning(this, "ClipCutter", "End point must be after start point", QMessageBox::Ok);
+        QMessageBox::warning(this, QStringLiteral("ClipCutter"), error);
         return;
     }
-
-    // Set the time
-    currentVideo->EndTimeMs = videoTimeMs;
-
-    // Update start/end display
     UpdateStartEndUI();
 }
 
-
 void CClipCutterWindow::OnVolumeChanged(int volume)
 {
-    const float volumeAsFloat = static_cast<float>(volume) / 100.0f;
-    audioOutput->setVolume(volumeAsFloat);
+    audioOutput->setVolume(static_cast<float>(volume) / 100.0f);
 }
-
 
 void CClipCutterWindow::OnPlayerDurationChanged(qint64 duration)
 {
-    const int sliderMaximum = static_cast<int>(qBound<qint64>(
-        qint64(0), duration, qint64(std::numeric_limits<int>::max())));
-    ui->timelineSlider->setMaximum(sliderMaximum);
-
-    if (currentVideo != nullptr && !currentVideo->HasBeenOpened && duration > 0)
+    ui->timelineSlider->setMaximum(static_cast<int>(qBound<qint64>(
+        qint64{0}, duration, qint64{std::numeric_limits<int>::max()})));
+    if (!currentClipId.isNull() && duration > 0)
     {
-        currentVideo->EndTimeMs = duration;
-        currentVideo->HasBeenOpened = true;
+        queueModel->updateMediaDuration(currentClipId, std::chrono::milliseconds{duration});
         UpdateStartEndUI();
     }
 }
 
-
 void CClipCutterWindow::OnPlayerPositionChanged(qint64 position)
 {
-    const int sliderPosition = static_cast<int>(qBound<qint64>(
-        qint64(0), position, qint64(std::numeric_limits<int>::max())));
-    ui->timelineSlider->setValue(sliderPosition);
+    ui->timelineSlider->setValue(static_cast<int>(qBound<qint64>(
+        qint64{0}, position, qint64{std::numeric_limits<int>::max()})));
     ui->timelineLabel->setText(Utility::GetTimeStringFromMilli(position));
 }
 
-
-void CClipCutterWindow::OnVideoListItemChanged(QTreeWidgetItem* curr, QTreeWidgetItem* prev)
+void CClipCutterWindow::OnClipSelectionChanged(const QModelIndex& current, const QModelIndex& previous)
 {
-    (void)prev;
-
-    if (curr == nullptr)
+    Q_UNUSED(previous);
+    if (current.isValid())
     {
-        return;
+        const QUuid segmentId = current.data(clipcutter::ClipQueueModel::SegmentIdRole).toUuid();
+        OpenVideo(queueModel->rowForSegment(segmentId));
     }
-
-    int index = GetVideoIndexFromTreeItem(curr);
-
-    if (index == -1)
-    {
-        QMessageBox::warning(nullptr, "ClipCutter", "Failed to find video from tree item");
-        return;
-    }
-
-    OpenVideo(index);
 }
-
 
 void CClipCutterWindow::OnVideoNameChanged(const QString& newName)
 {
-    if (currentVideo == nullptr)
+    if (!currentSegmentId.isNull())
     {
-        return;
+        queueModel->updateOutputName(currentSegmentId, newName + QStringLiteral(".mp4"));
     }
-
-    currentVideo->VideoName = newName + QStringLiteral(".mp4");
-    UpdateCurrentVideoName();
 }
 
-void CClipCutterWindow::OnKeywordChanged(QTreeWidgetItem *curr, QTreeWidgetItem *prev)
+void CClipCutterWindow::OnKeywordChanged(QTreeWidgetItem* current, QTreeWidgetItem* previous)
 {
-    (void)prev;
-
-    (void)curr;
+    Q_UNUSED(current);
+    Q_UNUSED(previous);
     UpdateKeywordUI();
     UpdateActionStates();
 }
 
-
-int CClipCutterWindow::GetVideoIndexFromTreeItem(const QTreeWidgetItem* treeItem) const
-{
-    for (auto it = videoList.begin(); it != videoList.end(); ++it)
-    {
-        const QueueItem* item = it->get();
-        if (item->TreeItem == treeItem)
-        {
-            return item->ListIndex;
-        }
-    }
-
-    return -1;
-}
-
-
 void CClipCutterWindow::UpdateStartEndUI()
 {
-    if (currentVideo == nullptr)
+    const clipcutter::Segment* segment = currentSegment();
+    if (segment == nullptr)
     {
         ui->startEndLabel->setText(QStringLiteral("Start: 00:00:00.000 / End: 00:00:00.000"));
         return;
     }
-
-    const QString label = QString("Start: %1 / End: %2")
-                              .arg(Utility::GetTimeStringFromMilli(currentVideo->StartTimeMs),
-                                   Utility::GetTimeStringFromMilli(currentVideo->EndTimeMs));
-
-    ui->startEndLabel->setText(label);
+    ui->startEndLabel->setText(QStringLiteral("Start: %1 / End: %2").arg(
+        Utility::GetTimeStringFromMilli(segment->range.start().count()),
+        Utility::GetTimeStringFromMilli(segment->range.end().count())));
 }
 
 void CClipCutterWindow::UpdateKeywordUI()
 {
+    const clipcutter::Segment* segment = currentSegment();
     for (int index = 0; index < ui->keywordsTree->topLevelItemCount(); ++index)
     {
-        QTreeWidgetItem* keywordItem = ui->keywordsTree->topLevelItem(index);
-        const bool isUsed = currentVideo != nullptr
-            && !currentVideo->keyword.isEmpty()
-            && ClipLogic::KeywordsEqual(keywordItem->text(KeywordTextColumn), currentVideo->keyword);
-        keywordItem->setText(KeywordUseColumn, isUsed ? QStringLiteral("Yes") : QString());
+        QTreeWidgetItem* item = ui->keywordsTree->topLevelItem(index);
+        const bool used = segment != nullptr && segment->prefix.has_value()
+            && ClipLogic::KeywordsEqual(item->text(KeywordTextColumn), *segment->prefix);
+        item->setText(KeywordUseColumn, used ? QStringLiteral("Yes") : QString());
     }
 }
 
 void CClipCutterWindow::UpdateCurrentVideoName()
 {
-    if (currentVideo == nullptr || currentVideo->TreeItem == nullptr)
-    {
-        return;
-    }
-
-    currentVideo->TreeItem->setText(ClipNameColumn, currentVideo->GetOutputName());
+    const clipcutter::Segment* segment = currentSegment();
+    const QSignalBlocker blocker(ui->clipNameEdit);
+    segment == nullptr ? ui->clipNameEdit->clear() : ui->clipNameEdit->setText(segment->outputBaseName);
 }
 
 void CClipCutterWindow::UpdateActionStates()
 {
-    const bool hasVideo = currentVideo != nullptr;
-    const bool hasQueue = !videoList.empty();
-    const int currentIndex = hasVideo ? currentVideo->ListIndex : -1;
-
+    const bool hasVideo = currentSegment() != nullptr;
+    const bool hasQueue = queueModel->rowCount() > 0;
+    const int row = queueModel->rowForSegment(currentSegmentId);
     ui->actionPlayPause->setEnabled(hasVideo);
-    ui->actionNext->setEnabled(hasVideo && currentIndex + 1 < static_cast<int>(videoList.size()));
+    ui->actionNext->setEnabled(hasVideo && row + 1 < queueModel->rowCount());
     ui->actionSkip->setEnabled(hasVideo);
-    ui->actionPrev->setEnabled(hasVideo && currentIndex > 0);
+    ui->actionPrev->setEnabled(hasVideo && row > 0);
     ui->actionStop->setEnabled(hasVideo);
     ui->actionSetStart->setEnabled(hasVideo);
     ui->actionSetEnd->setEnabled(hasVideo);
     ui->actionProcessClips->setEnabled(hasQueue);
-
     ui->clipNameEdit->setEnabled(hasVideo);
     ui->buttonUseSelected->setEnabled(hasVideo && !ui->keywordsTree->selectedItems().isEmpty());
     ui->buttonRemoveSelected->setEnabled(!ui->keywordsTree->selectedItems().isEmpty());
@@ -467,101 +351,81 @@ void CClipCutterWindow::UpdateActionStates()
 
 void CClipCutterWindow::ClearCurrentClipUI()
 {
-    currentVideo = nullptr;
+    currentClipId = {};
+    currentSegmentId = {};
     player->stop();
     player->setSource(QUrl());
     ui->actionPlayPause->setIcon(playIcon);
     ui->timelineSlider->setRange(0, 0);
     ui->timelineLabel->setText(QStringLiteral("00:00:00.000"));
-
-    const QSignalBlocker nameBlocker(ui->clipNameEdit);
-    ui->clipNameEdit->clear();
-
-    UpdateStartEndUI();
-    UpdateKeywordUI();
-    UpdateActionStates();
-}
-void CClipCutterWindow::LoadVideoFiles(
-    const QStringList& filePaths,
-    const QDir& directory,
-    const QString& preparedOutputDirectory)
-{
-    ClearCurrentClipUI();
-
-    {
-        const QSignalBlocker clipsBlocker(ui->clipsTree);
-        videoList.clear();
-        ui->clipsTree->clear();
-
-        videoDirectory = directory;
-        outputDirectory = preparedOutputDirectory;
-
-        videoList.reserve(static_cast<std::size_t>(filePaths.size()));
-        for (int index = 0; index < filePaths.size(); ++index)
-        {
-            const QFileInfo fileInfo(filePaths.at(index));
-            auto queueItem = std::make_unique<QueueItem>();
-            queueItem->ListIndex = index;
-            queueItem->VideoName = fileInfo.fileName();
-            queueItem->OriginalPath = fileInfo.absoluteFilePath();
-
-            QTreeWidgetItem* treeItem = new QTreeWidgetItem(ui->clipsTree);
-            treeItem->setCheckState(ClipSkipColumn, Qt::CheckState::Unchecked);
-            treeItem->setText(ClipNameColumn, queueItem->VideoName);
-            queueItem->TreeItem = treeItem;
-
-            QueueItem* queueItemPointer = queueItem.get();
-            videoList.push_back(std::move(queueItem));
-            connect(ui->clipsTree, &QTreeWidget::itemChanged, queueItemPointer, &QueueItem::UpdateSkip);
-        }
-    }
-
-    OpenVideo(0);
-}
-
-
-void CClipCutterWindow::OpenVideo(int videoIndex)
-{
-    if (videoIndex < 0 || videoIndex >= static_cast<int>(videoList.size()))
-    {
-        return;
-    }
-
-    currentVideo = videoList[static_cast<std::size_t>(videoIndex)].get();
-
-    ActionStopTriggered();
-    player->setSource(QUrl::fromLocalFile(currentVideo->OriginalPath));
-    player->pause();
-
-    if (!currentVideo->HasBeenOpened && player->duration() > 0)
-    {
-        currentVideo->EndTimeMs = player->duration();
-        currentVideo->HasBeenOpened = true;
-    }
-
-    const int sliderMaximum = static_cast<int>(qBound<qint64>(
-        qint64(0), player->duration(), qint64(std::numeric_limits<int>::max())));
-    ui->timelineSlider->setMaximum(sliderMaximum);
-
-    {
-        const QSignalBlocker clipsBlocker(ui->clipsTree);
-        ui->clipsTree->setCurrentItem(currentVideo->TreeItem);
-    }
-
-    {
-        const QSignalBlocker nameBlocker(ui->clipNameEdit);
-        ui->clipNameEdit->setText(QFileInfo(currentVideo->VideoName).completeBaseName());
-    }
-
     UpdateCurrentVideoName();
     UpdateStartEndUI();
     UpdateKeywordUI();
     UpdateActionStates();
+}
 
+void CClipCutterWindow::LoadImportedClips(
+    clipcutter::ImportResult result,
+    const QDir& directory,
+    const QString& preparedOutputDirectory)
+{
+    ClearCurrentClipUI();
+    queueModel->clearClips();
+    videoDirectory = directory;
+    outputDirectory = preparedOutputDirectory;
+    queueModel->addClips(std::move(result.imported));
+    if (ui->qualityCombo->currentIndex() >= 0)
+    {
+        queueModel->updateAllExportProfiles(ui->qualityCombo->currentText().toLower());
+    }
+    PresentImportMessages(result);
+    if (queueModel->rowCount() > 0)
+    {
+        OpenVideo(0);
+    }
+}
+
+void CClipCutterWindow::PresentImportMessages(const clipcutter::ImportResult& result)
+{
+    if (!result.errors.isEmpty())
+    {
+        QStringList lines;
+        for (const clipcutter::ImportError& error : result.errors)
+        {
+            lines.append(QStringLiteral("%1: %2").arg(error.path, error.message));
+        }
+        QMessageBox::warning(this, QStringLiteral("ClipCutter"), lines.join(QLatin1Char('\n')));
+    }
+}
+
+void CClipCutterWindow::OpenVideo(int row)
+{
+    const QUuid clipId = queueModel->clipIdAtRow(row);
+    const QUuid segmentId = queueModel->segmentIdAtRow(row);
+    clipcutter::Clip* clip = queueModel->findClip(clipId);
+    if (clip == nullptr || segmentId.isNull())
+    {
+        return;
+    }
+    currentClipId = clipId;
+    currentSegmentId = segmentId;
+    player->stop();
+    ui->actionPlayPause->setIcon(playIcon);
+    player->setSource(QUrl::fromLocalFile(clip->sourcePath));
+    player->pause();
+    {
+        const QSignalBlocker blocker(ui->clipsTable->selectionModel());
+        ui->clipsTable->selectionModel()->setCurrentIndex(
+            queueModel->index(row, clipcutter::ClipQueueModel::SourceNameColumn),
+            QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+    }
+    UpdateCurrentVideoName();
+    UpdateStartEndUI();
+    UpdateKeywordUI();
+    UpdateActionStates();
     ui->actionPlayPause->setIcon(pauseIcon);
     player->play();
 }
-
 
 void CClipCutterWindow::DisableActions()
 {
@@ -579,7 +443,6 @@ void CClipCutterWindow::DisableActions()
     ui->skipAllButton->setEnabled(false);
 }
 
-
 void CClipCutterWindow::EnableActions()
 {
     ui->actionOpenFolder->setEnabled(true);
@@ -587,21 +450,26 @@ void CClipCutterWindow::EnableActions()
     UpdateActionStates();
 }
 
-
 void CClipCutterWindow::ProcessClips()
 {
     if (ui->qualityCombo->currentIndex() == -1)
     {
-        QMessageBox::information(this, "ClipCutter", "Select an output quality before processing clips.");
+        QMessageBox::information(this, QStringLiteral("ClipCutter"),
+                                 QStringLiteral("Select an output quality before processing clips."));
         return;
     }
-
-    if (videoList.empty())
+    if (queueModel->rowCount() == 0)
     {
-        QMessageBox::information(this, "ClipCutter", "There are no clips to process.");
+        QMessageBox::information(this, QStringLiteral("ClipCutter"), QStringLiteral("There are no clips to process."));
         return;
     }
-
+    QStringList rangeErrors;
+    const QVector<clipcutter::ExportSegment> exports = queueModel->exportableSegments(&rangeErrors);
+    if (!rangeErrors.isEmpty())
+    {
+        QMessageBox::warning(this, QStringLiteral("ClipCutter"), rangeErrors.join(QLatin1Char('\n')));
+        return;
+    }
     QString preparedOutputDirectory;
     QString outputError;
     if (!Utility::PrepareOutputDirectory(videoDirectory, preparedOutputDirectory, outputError))
@@ -610,195 +478,158 @@ void CClipCutterWindow::ProcessClips()
         return;
     }
     outputDirectory = preparedOutputDirectory;
-
+    const QUuid selectedSegmentId = currentSegmentId;
     DisableActions();
     player->stop();
     player->setSource(QUrl());
 
-    for (std::size_t index = 0; index < videoList.size(); ++index)
+    for (int index = 0; index < exports.size(); ++index)
     {
-        const QueueItem* queueItem = videoList[index].get();
-
-        const int progress = static_cast<int>(index * 100 / videoList.size());
-        ui->progressBar->setValue(progress);
-
-        if (queueItem->Skip)
+        const clipcutter::ExportSegment& segment = exports.at(index);
+        ui->progressBar->setValue(exports.isEmpty() ? 100 : index * 100 / exports.size());
+        const auto quality = static_cast<clipcutter::ReEncodeQuality>(ui->qualityCombo->currentIndex());
+        clipcutter::FFmpeg::ProcessSegment(segment, outputDirectory, quality, false);
+        if (!userSettings.copyDateTime)
         {
             continue;
         }
 
-        const EReEncodeQuality quality = static_cast<EReEncodeQuality>(ui->qualityCombo->currentIndex());
-        FFmpeg::ProcessQueueItem(queueItem, outputDirectory, quality, false);
-
-        if (userSettings.copyDateTime)
+        FILETIME creationTime, accessedTime, modifiedTime;
+        const QString originalPath = QDir::toNativeSeparators(segment.sourcePath);
+        const HANDLE original = CreateFileW(
+            reinterpret_cast<LPCWSTR>(originalPath.utf16()), FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (original == INVALID_HANDLE_VALUE)
         {
-            FILETIME creationTime, accessedTime, modifiedTime;
-            const QString originalPath = QDir::toNativeSeparators(queueItem->OriginalPath);
-            const HANDLE hOriginalFile = CreateFileW(
-                reinterpret_cast<LPCWSTR>(originalPath.utf16()),
-                FILE_READ_ATTRIBUTES,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                nullptr,
-                OPEN_EXISTING,
-                FILE_ATTRIBUTE_NORMAL,
-                nullptr);
+            QMessageBox::information(this, QStringLiteral("ClipCutter"),
+                                     QStringLiteral("Unable to open the original file for metadata. Error: %1")
+                                         .arg(GetLastError()));
+            continue;
+        }
+        const bool read = GetFileTime(original, &creationTime, &accessedTime, &modifiedTime);
+        CloseHandle(original);
+        if (!read)
+        {
+            QMessageBox::information(this, QStringLiteral("ClipCutter"),
+                                     QStringLiteral("Unable to read the original file's timestamps."));
+            continue;
+        }
 
-            if (hOriginalFile == INVALID_HANDLE_VALUE)
+        const QString newPath = QDir::toNativeSeparators(
+            QDir(outputDirectory).absoluteFilePath(segment.outputFileName));
+        const HANDLE output = CreateFileW(
+            reinterpret_cast<LPCWSTR>(newPath.utf16()), FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ,
+            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (output == INVALID_HANDLE_VALUE)
+        {
+            QMessageBox::information(this, QStringLiteral("ClipCutter"),
+                                     QStringLiteral("Unable to open the output file for metadata."));
+        }
+        else
+        {
+            if (!SetFileTime(output, &creationTime, &accessedTime, &modifiedTime))
             {
-                QMessageBox::information(
-                    this,
-                    "ClipCutter",
-                    QString("Unable to open the original file for metadata. Error: %1").arg(GetLastError()));
-                continue;
+                QMessageBox::information(this, QStringLiteral("ClipCutter"),
+                                         QStringLiteral("Unable to set the output file's timestamps."));
             }
-
-            const bool timestampsRead = GetFileTime(hOriginalFile, &creationTime, &accessedTime, &modifiedTime);
-            CloseHandle(hOriginalFile);
-
-            if (!timestampsRead)
-            {
-                QMessageBox::information(this, "ClipCutter", "Unable to read the original file's timestamps.");
-                continue;
-            }
-
-            const QString newFilePath = QDir::toNativeSeparators(
-                QDir(outputDirectory).absoluteFilePath(queueItem->GetOutputName()));
-            const HANDLE hNewFile = CreateFileW(
-                reinterpret_cast<LPCWSTR>(newFilePath.utf16()),
-                FILE_WRITE_ATTRIBUTES,
-                FILE_SHARE_READ,
-                nullptr,
-                OPEN_EXISTING,
-                FILE_ATTRIBUTE_NORMAL,
-                nullptr);
-
-            if (hNewFile == INVALID_HANDLE_VALUE)
-            {
-                QMessageBox::information(this, "ClipCutter", "Unable to open the output file for metadata.");
-            }
-            else
-            {
-                if (!SetFileTime(hNewFile, &creationTime, &accessedTime, &modifiedTime))
-                {
-                    QMessageBox::information(this, "ClipCutter", "Unable to set the output file's timestamps.");
-                }
-
-                CloseHandle(hNewFile);
-            }
+            CloseHandle(output);
         }
     }
 
     ui->progressBar->setValue(100);
-
-    if (currentVideo != nullptr)
+    const int selectedRow = queueModel->rowForSegment(selectedSegmentId);
+    if (selectedRow >= 0)
     {
-        const int currentIndex = currentVideo->ListIndex;
-        OpenVideo(currentIndex);
+        OpenVideo(selectedRow);
         player->pause();
         ui->actionPlayPause->setIcon(playIcon);
     }
-
-    QMessageBox::information(this, "ClipCutter", "Processing complete.");
+    QMessageBox::information(this, QStringLiteral("ClipCutter"), QStringLiteral("Processing complete."));
     EnableActions();
 }
 
 void CClipCutterWindow::MarkAllAsSkipped()
 {
-    for (auto it = videoList.begin(); it != videoList.end(); ++it)
-    {
-        QueueItem* item = it->get();
-        item->TreeItem->setCheckState(ClipSkipColumn, Qt::CheckState::Checked);
-        item->Skip = true;
-    }
+    queueModel->updateAllSkipStates(true);
 }
 
 void CClipCutterWindow::AddKeyword()
 {
     const QString keyword = ClipLogic::NormalizeKeyword(ui->keywordEdit->text());
-
     if (keyword.isEmpty())
     {
         QMessageBox::information(this, QStringLiteral("ClipCutter"), QStringLiteral("Enter a non-empty keyword."));
         return;
     }
-
-    QStringList existingKeywords;
-    existingKeywords.reserve(ui->keywordsTree->topLevelItemCount());
+    QStringList existing;
     for (int index = 0; index < ui->keywordsTree->topLevelItemCount(); ++index)
     {
-        existingKeywords.append(ui->keywordsTree->topLevelItem(index)->text(KeywordTextColumn));
+        existing.append(ui->keywordsTree->topLevelItem(index)->text(KeywordTextColumn));
     }
-
-    if (ClipLogic::ContainsKeyword(existingKeywords, keyword))
+    if (ClipLogic::ContainsKeyword(existing, keyword))
     {
-        QMessageBox::information(
-            this,
-            QStringLiteral("ClipCutter"),
-            QStringLiteral("The keyword \"%1\" already exists.").arg(keyword));
+        QMessageBox::information(this, QStringLiteral("ClipCutter"),
+                                 QStringLiteral("The keyword \"%1\" already exists.").arg(keyword));
         return;
     }
-
-    QTreeWidgetItem* treeItem = new QTreeWidgetItem(ui->keywordsTree);
-    treeItem->setText(KeywordTextColumn, keyword);
+    auto* item = new QTreeWidgetItem(ui->keywordsTree);
+    item->setText(KeywordTextColumn, keyword);
     ui->keywordEdit->clear();
-    ui->keywordsTree->setCurrentItem(treeItem);
+    ui->keywordsTree->setCurrentItem(item);
     UpdateKeywordUI();
     UpdateActionStates();
 }
 
 void CClipCutterWindow::RemoveKeyword()
 {
-    const QList<QTreeWidgetItem*> treeItemsToRemove = ui->keywordsTree->selectedItems();
-
-    for (QTreeWidgetItem* item : treeItemsToRemove)
+    const QList<QTreeWidgetItem*> selected = ui->keywordsTree->selectedItems();
+    for (QTreeWidgetItem* item : selected)
     {
-        const QString removedKeyword = item->text(KeywordTextColumn);
-
-        for (const std::unique_ptr<QueueItem>& videoItem : videoList)
-        {
-            QueueItem* video = videoItem.get();
-
-            if (ClipLogic::KeywordsEqual(video->keyword, removedKeyword))
-            {
-                video->keyword.clear();
-                video->TreeItem->setText(ClipNameColumn, video->GetOutputName());
-            }
-        }
-
+        queueModel->clearPrefixFromAll(item->text(KeywordTextColumn));
         delete item;
     }
-
     UpdateKeywordUI();
     UpdateActionStates();
 }
 
 void CClipCutterWindow::UseKeyword()
 {
-    if (currentVideo == nullptr)
+    clipcutter::Segment* segment = currentSegment();
+    const QList<QTreeWidgetItem*> selected = ui->keywordsTree->selectedItems();
+    if (segment == nullptr || selected.isEmpty())
     {
         return;
     }
-
-    const QList<QTreeWidgetItem*> selectedItems = ui->keywordsTree->selectedItems();
-
-    if (selectedItems.isEmpty())
+    const QString keyword = selected.constFirst()->text(KeywordTextColumn);
+    if (segment->prefix.has_value() && ClipLogic::KeywordsEqual(*segment->prefix, keyword))
     {
-        return;
-    }
-
-    const QTreeWidgetItem* keywordItem = selectedItems.constFirst();
-    const QString keywordText = keywordItem->text(KeywordTextColumn);
-
-    if (ClipLogic::KeywordsEqual(keywordText, currentVideo->keyword))
-    {
-        currentVideo->keyword.clear();
+        queueModel->clearPrefix(segment->id);
     }
     else
     {
-        currentVideo->keyword = keywordText;
+        queueModel->applyPrefix(segment->id, keyword);
     }
-
-    UpdateCurrentVideoName();
     UpdateKeywordUI();
     UpdateActionStates();
+}
+
+clipcutter::Clip* CClipCutterWindow::currentClip()
+{
+    return queueModel->findClip(currentClipId);
+}
+
+const clipcutter::Clip* CClipCutterWindow::currentClip() const
+{
+    return queueModel->findClip(currentClipId);
+}
+
+clipcutter::Segment* CClipCutterWindow::currentSegment()
+{
+    return queueModel->findSegment(currentSegmentId);
+}
+
+const clipcutter::Segment* CClipCutterWindow::currentSegment() const
+{
+    return queueModel->findSegment(currentSegmentId);
 }

@@ -42,17 +42,24 @@ target_sources(clipcutter_core PRIVATE
     "${CLIPCUTTER_SOURCE_DIR}/ClipLogic.h"
     "${CLIPCUTTER_SOURCE_DIR}/FFmpeg.cpp"
     "${CLIPCUTTER_SOURCE_DIR}/FFmpeg.h"
-    "${CLIPCUTTER_SOURCE_DIR}/QueueItem.cpp"
-    "${CLIPCUTTER_SOURCE_DIR}/QueueItem.h"
     "${CLIPCUTTER_SOURCE_DIR}/Utility.cpp"
     "${CLIPCUTTER_SOURCE_DIR}/Utility.h"
+    "${CLIPCUTTER_SOURCE_DIR}/app/models/ClipQueueModel.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/app/models/ClipQueueModel.h"
+    "${CLIPCUTTER_SOURCE_DIR}/core/clip/Clip.h"
+    "${CLIPCUTTER_SOURCE_DIR}/core/clip/Segment.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/core/clip/Segment.h"
+    "${CLIPCUTTER_SOURCE_DIR}/core/clip/TimeRange.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/core/clip/TimeRange.h"
+    "${CLIPCUTTER_SOURCE_DIR}/core/import/ClipImporter.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/core/import/ClipImporter.h"
+    "${CLIPCUTTER_SOURCE_DIR}/core/media/MediaInfo.h"
 )
 target_include_directories(clipcutter_core PUBLIC
     "$<BUILD_INTERFACE:${CLIPCUTTER_SOURCE_DIR}>"
 )
 target_link_libraries(clipcutter_core PUBLIC
     Qt6::Core
-    Qt6::Widgets
 )
 target_compile_features(clipcutter_core PUBLIC cxx_std_17)
 clipcutter_configure_first_party_target(clipcutter_core)

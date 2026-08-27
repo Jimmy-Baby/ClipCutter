@@ -11,7 +11,7 @@ int main(int argc, char *argv[])
     QApplication::setStyle("fusion");
 
     // Check if FFmpeg is working correctly
-    if (FFmpeg::FFmpegTest() == false)
+    if (clipcutter::FFmpeg::FFmpegTest() == false)
     {
         DWORD lastError = GetLastError();
 
