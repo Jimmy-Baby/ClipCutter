@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "target": {
+    "operatingSystem": "windows",
+    "architecture": "x86_64",
+    "archiveArchitecture": "x64"
+  },
+  "qt": {
+    "testedVersion": "6.11.2",
+    "tool": "windeployqt.exe",
+    "requiredModules": [
+      "Core",
+      "Gui",
+      "Widgets",
+      "Multimedia",
+      "MultimediaWidgets"
+    ],
+    "expectedFiles": [
+      "Qt6Core.dll",
+      "Qt6Gui.dll",
+      "Qt6Widgets.dll",
+      "Qt6Multimedia.dll",
+      "Qt6MultimediaWidgets.dll",
+      "platforms/qwindows.dll"
+    ],
+    "expectedAnyOf": [
+      [
+        "multimedia/ffmpegmediaplugin.dll",
+        "multimedia/windowsmediaplugin.dll"
+      ]
+    ],
+    "sbomFiles": [
+      "qtbase-6.11.2.spdx.json",
+      "qtmultimedia-6.11.2.spdx.json",
+      "qtsvg-6.11.2.spdx.json"
+    ],
+    "bundledFfmpegRuntime": {
+      "fileProductVersion": "7.1.5",
+      "expectedFiles": [
+        "avcodec-61.dll",
+        "avformat-61.dll",
+        "avutil-59.dll",
+        "swresample-5.dll",
+        "swscale-8.dll"
+      ],
+      "licenseIdentifier": "LGPL-2.1-or-later AND BSD-3-Clause AND BSD-2-Clause AND BSD-Source-Code AND ISC AND MIT AND MPL-2.0",
+      "packageAttributionLocation": "licenses/Qt/SBOM/qtmultimedia-6.11.2.spdx.json"
+    },
+    "provenance": {
+      "description": "Maintainer-supplied Qt 6.11.2 MSVC 2022 64-bit kit; windeployqt selects the runtime closure.",
+      "sourceUrl": null,
+      "archiveSha256": null,
+      "officialReleaseRequirement": "Record the trusted Qt installer/offline archive provenance and verified SHA-256 here before an official release, or retain the maintainer's independently verified acquisition record with the release evidence."
+    },
+    "license": {
+      "identifier": "LGPL-3.0-only",
+      "sourceFileParameter": "QtLicenseFile",
+      "packageLocation": "licenses/Qt/LICENSE.txt"
+    }
+  },
+  "ffmpeg": {
+    "testedVersion": "8.0.1",
+    "ffprobeTestedVersion": "8.0.1",
+    "architecture": "x86_64",
+    "expectedFiles": [
+      "ffmpeg.exe",
+      "ffprobe.exe"
+    ],
+    "expectedBinarySha256": {
+      "ffmpeg.exe": null,
+      "ffprobe.exe": null
+    },
+    "provenance": {
+      "description": "Maintainer-supplied Windows x64 FFmpeg distribution containing ffmpeg and ffprobe.",
+      "sourceUrl": null,
+      "archiveSha256": null,
+      "officialReleaseRequirement": "Populate sourceUrl and archiveSha256 from a trusted, independently verified source before an official release. Binary SHA-256 values may also be pinned above."
+    },
+    "license": {
+      "identifier": "GPL-3.0-or-later",
+      "sourceFileParameter": "FfmpegLicenseFile",
+      "acceptedSourceNames": [
+        "LICENSE",
+        "LICENSE.txt",
+        "COPYING.GPLv3"
+      ],
+      "packageLocation": "licenses/FFmpeg/LICENSE.txt"
+    }
+  }
+}

@@ -12,7 +12,7 @@ It is designed to tackle the challenge of dealing with a large number of videos 
 ## Installation
 
 ### Download
-Download the latest [release](https://github.com/Jimmy-Baby/ClipCutter/releases/download/v2.1.1/ClipCutter.v2.1.1.zip)
+Download the latest package from [Releases](https://github.com/Jimmy-Baby/ClipCutter/releases/latest).
 
 ### Extract
 Extract the files into a folder. This is where ClipCutter will live.
@@ -30,12 +30,11 @@ Here's how you can use it:
 
 ### Bulk workflow
 
-- Imports append to the queue. Duplicate canonical source paths are skipped consistently for file dialogs, folders, and drag/drop.
-- Dropped local video files and folders are accepted. Folder recursion is explicit and off by default; unsupported files and non-local URLs are ignored with a status summary.
+- Imports append to the queue. Duplicate source paths are skipped consistently for file dialogs, folders, and drag/drop.
+- Dropped local video files and folders will work. Folder recursion is off by default; unsupported files and non-local URLs are ignored with a status summary.
 - **Beside each source** writes to a configurable child directory of every source directory (`ClipCutterOutput` by default). **Fixed directory** writes the whole batch to one selected directory.
 - The destination and selected-row output path remain visible while editing. Export shows the complete rendered batch before work starts.
-- The preview and queue share a horizontal splitter. Window, toolbar, splitter, volume, workflow, naming, and import preferences restore on restart.
-- Queue filtering searches source/output names, prefixes, status, and keep/skip state without changing the source model or stable IDs.
+- Queue filtering searches source/output names, prefixes, status, and keep/skip state without changing the source model.
 - The **Batch** menu applies keep/skip, prefix, template, profile, full-range reset, removal, and queue-clear operations at model level.
 
 ### Naming-template syntax
@@ -133,7 +132,7 @@ Malformed booleans, volume, destination modes, profiles, subdirectory names, tem
 - Windows 10 or later.
 - CMake 3.22 or later and Ninja available on `PATH`.
 - Visual Studio 2022 or Build Tools for Visual Studio 2022 with **Desktop development with C++** and a Windows SDK. Run commands from an x64 Native Tools or Developer PowerShell so MSVC is available.
-- Qt 6.5 or later with Core, Gui, Widgets, Multimedia, MultimediaWidgets, and Test. Qt 6.11.2 with the 64-bit MSVC 2022 kit is the tested configuration.
+- Qt 6.5 or later with Core, Gui, Widgets, Multimedia, MultimediaWidgets, and Test. The release-tested version is recorded in `packaging/dependencies.json`.
 - FFmpeg and ffprobe for running the application. Neither binary is needed for pure unit tests.
 
 Qt is not stored at a fixed repository path. Let CMake find it through `CMAKE_PREFIX_PATH` or `Qt6_DIR`. For example, replace the example path below with the root of your compiler-matched Qt kit:
@@ -172,6 +171,8 @@ $env:Path = "C:\path\to\Qt\6.11.2\msvc2022_64\bin;$env:Path"
 ```
 
 Release archives already include FFmpeg and the required Qt runtime files. Local source builds intentionally do not perform deployment or packaging.
+
+Maintainers build release archives entirely locally. See [docs/RELEASING.md](docs/RELEASING.md); no hosted CI or GitHub Actions workflow is used.
 
 ### CMake targets
 

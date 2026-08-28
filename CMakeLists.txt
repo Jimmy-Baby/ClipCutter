@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.22)
 project(ClipCutter VERSION 2.1.1 LANGUAGES CXX)
 
 option(CLIPCUTTER_WARNINGS_AS_ERRORS "Treat first-party compiler warnings as errors" OFF)
+option(CLIPCUTTER_BUILD_PACKAGING_TOOLS "Build local release packaging diagnostics" OFF)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS
     Core
@@ -16,6 +17,12 @@ qt_standard_project_setup(REQUIRES 6.5)
 set(CMAKE_AUTORCC ON)
 
 set(CLIPCUTTER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/ClipCutter")
+set(CLIPCUTTER_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ClipCutterVersion.h.in"
+    "${CLIPCUTTER_GENERATED_DIR}/ClipCutterVersion.h"
+    @ONLY
+)
 
 function(clipcutter_configure_first_party_target target)
     target_compile_definitions(${target} PRIVATE
@@ -124,6 +131,7 @@ target_sources(ClipCutter PRIVATE
 )
 target_include_directories(ClipCutter PRIVATE
     "${CLIPCUTTER_SOURCE_DIR}"
+    "${CLIPCUTTER_GENERATED_DIR}"
 )
 target_link_libraries(ClipCutter PRIVATE
     clipcutter_core
@@ -134,8 +142,40 @@ target_link_libraries(ClipCutter PRIVATE
     Qt6::Multimedia
     Qt6::MultimediaWidgets
 )
+if(WIN32)
+    target_link_libraries(ClipCutter PRIVATE Psapi)
+endif()
 target_compile_features(ClipCutter PRIVATE cxx_std_17)
 clipcutter_configure_first_party_target(ClipCutter)
+
+install(TARGETS ClipCutter
+    RUNTIME DESTINATION "."
+    COMPONENT Runtime
+)
+install(FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
+    DESTINATION "."
+    COMPONENT Runtime
+)
+install(FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+    DESTINATION "licenses/ClipCutter"
+    RENAME "LICENSE.txt"
+    COMPONENT Runtime
+)
+
+if(CLIPCUTTER_BUILD_PACKAGING_TOOLS)
+    add_executable(ClipCutterPackageSmoke
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/SmokeTestMain.cpp"
+    )
+    target_include_directories(ClipCutterPackageSmoke PRIVATE
+        "${CLIPCUTTER_SOURCE_DIR}"
+        "${CLIPCUTTER_GENERATED_DIR}"
+    )
+    target_link_libraries(ClipCutterPackageSmoke PRIVATE clipcutter_core Qt6::Core)
+    target_compile_features(ClipCutterPackageSmoke PRIVATE cxx_std_17)
+    clipcutter_configure_first_party_target(ClipCutterPackageSmoke)
+endif()
 
 include(CTest)
 if(BUILD_TESTING)

@@ -5,6 +5,7 @@
 #include "Core/Export/OutputProfile.h"
 #include "Core/Naming/NamingTemplate.h"
 #include "App/Undo/SegmentCommands.h"
+#include "ClipCutterVersion.h"
 #include "ui_MainWindow.h"
 
 #include <QAudioOutput>
@@ -31,6 +32,7 @@
 #include <QSignalBlocker>
 #include <QStandardItemModel>
 #include <QStatusBar>
+#include <QStyle>
 #include <QSlider>
 #include <QTableView>
 #include <QTimer>
@@ -54,14 +56,21 @@ constexpr int KKeywordTextColumn = 1;
 
 ClipCutter::MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent), Ui_(new Ui::ClipCutterWindow), Player_(nullptr), VideoWidget_(nullptr),
-      AudioOutput_(nullptr), PlayIcon_(QStringLiteral(":/icons/play-solid.svg")),
-      PauseIcon_(QStringLiteral(":/icons/pause-solid.svg")), QueueModel_(new ClipQueueModel(this)),
+      AudioOutput_(nullptr), QueueModel_(new ClipQueueModel(this)),
       QueueProxy_(new ClipQueueFilterModel(this)),
       ExportController_(new ExportQueueController(this)), MediaProbe_(new MediaProbe(this)),
       StartupDiagnostics_(new StartupDiagnostics(this)), AutosaveTimer_(new QTimer(this)),
       UndoStack_(new QUndoStack(this)), ThumbnailProvider_(new FfmpegThumbnailProvider(this))
 {
     Ui_->setupUi(this);
+    PlayIcon_ = style()->standardIcon(QStyle::SP_MediaPlay);
+    PauseIcon_ = style()->standardIcon(QStyle::SP_MediaPause);
+    Ui_->actionPlayPause->setIcon(PlayIcon_);
+    Ui_->actionStop->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
+    Ui_->actionNext->setIcon(style()->standardIcon(QStyle::SP_MediaSeekForward));
+    Ui_->actionPrev->setIcon(style()->standardIcon(QStyle::SP_MediaSeekBackward));
+    Ui_->actionOpenFolder->setIcon(style()->standardIcon(QStyle::SP_DirOpenIcon));
+    Ui_->actionOpenFiles->setIcon(style()->standardIcon(QStyle::SP_DialogOpenButton));
     SetupWorkflowUi();
     QueueProxy_->setSourceModel(QueueModel_);
     Ui_->clipsTable->setModel(QueueProxy_);
@@ -1419,6 +1428,16 @@ void ClipCutter::MainWindow::SetupWorkflowUi()
                             TimelineWidget_, &TimelineWidget::ZoomOut);
     timelineMenu->addAction(QStringLiteral("Zoom to selection"), QKeySequence(QStringLiteral("Ctrl+0")),
                             TimelineWidget_, &TimelineWidget::ZoomToSelection);
+
+    QMenu* helpMenu = menuBar()->addMenu(QStringLiteral("Help"));
+    helpMenu->addAction(QStringLiteral("About ClipCutter"), this,
+        [this]
+        {
+            QMessageBox::about(this, QStringLiteral("About ClipCutter"),
+                QStringLiteral("<h3>ClipCutter %1</h3><p>Batch video clip editor.</p>"
+                               "<p>Copyright © 2023 Jim Bab. Licensed under MIT.</p>")
+                    .arg(QStringLiteral(CLIPCUTTER_VERSION_STRING)));
+        });
     timelineMenu->addAction(QStringLiteral("Zoom to full duration"), QKeySequence(QStringLiteral("Ctrl+Shift+0")),
                             TimelineWidget_, &TimelineWidget::ZoomToFull);
     timelineMenu->addSeparator();
