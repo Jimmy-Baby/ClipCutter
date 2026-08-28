@@ -41,42 +41,47 @@ The FFmpeg and ffprobe first-line semantic versions are validated during packagi
 Regenerate and review notices after a dependency or asset change:
 
 ```powershell
-pwsh .\packaging\windows\generate-third-party-notices.ps1 `
-  -DependencyManifestPath .\packaging\dependencies.json `
-  -OutputPath .\THIRD_PARTY_NOTICES.md
+pwsh .\packaging\windows\generate-third-party-notices.ps1 -DependencyManifestPath .\packaging\dependencies.json -OutputPath .\THIRD_PARTY_NOTICES.md
 ```
 
 The existing SVGs are first-party MIT assets documented in `src/ClipCutter/Icons/README.md`; older assets with unknown provenance were replaced.
 
 ## Clean local validation build
 
-Use explicit paths. This command removes and recreates only the selected build/staging directories after safety checks:
+Use explicit paths. Start PowerShell 7 with `pwsh`, then paste this hashtable form. It has no fragile backtick line continuations. Do not write `msvc2022\_64`; the directory name contains a plain underscore. The script initializes the installed Visual Studio x64 developer environment automatically.
 
 ```powershell
-pwsh .\packaging\windows\build-release.ps1 `
-  -Version v2.1.1 `
-  -PreviousTag v2.1.0 `
-  -QtRoot C:\Qt\6.11.2\msvc2022_64 `
-  -FfmpegDirectory C:\deps\ffmpeg\bin `
-  -QtLicenseFile C:\Qt\Licenses\LICENSE `
-  -FfmpegLicenseFile C:\deps\ffmpeg\LICENSE `
-  -BuildDirectory .\build\windows-package `
-  -OutputDirectory .\out\release `
-  -SourceDateEpoch 1787839200
+$release = @{
+    Version           = 'v2.1.1'
+    PreviousTag       = 'v2.1.0'
+    QtRoot            = 'C:\Qt\6.11.2\msvc2022_64'
+    FfmpegDirectory   = 'C:\deps\ffmpeg\bin'
+    QtLicenseFile     = 'C:\Qt\Licenses\LICENSE'
+    FfmpegLicenseFile = 'C:\deps\ffmpeg\LICENSE'
+    BuildDirectory    = '.\build\windows-package'
+    OutputDirectory   = '.\out\release'
+    SourceDateEpoch   = 1787839200
+}
+& .\packaging\windows\build-release.ps1 @release
 ```
 
-Omit `-SourceDateEpoch` to use the `HEAD` commit timestamp. Use a fixed, documented release timestamp for reproducible publication artifacts. ZIP timestamps have two-second resolution.
+Omit `SourceDateEpoch` from the hashtable to use the `HEAD` commit timestamp. Use a fixed, documented release timestamp for reproducible publication artifacts. ZIP timestamps have two-second resolution.
+
+`find_package(Qt6 6.5 ...)` in CMake means Qt 6.5 is the minimum compatible API version; it does not request installation of Qt 6.5. The release script validates the actual kit version and passes `<QtRoot>\lib\cmake\Qt6` explicitly as `Qt6_DIR`.
 
 For validation without building:
 
 ```powershell
-pwsh .\packaging\windows\build-release.ps1 <same parameters> -ValidateOnly
+& .\packaging\windows\build-release.ps1 @release -ValidateOnly
 ```
 
 For an official release, commit all changes, create and check out the exact tag, populate the trusted dependency provenance/hashes, then add:
 
 ```powershell
--OfficialRelease -QtArchive C:\deps\qt-offline-installer.exe -FfmpegArchive C:\deps\ffmpeg-release.7z
+$release.OfficialRelease = $true
+$release.QtArchive = 'C:\deps\qt-offline-installer.exe'
+$release.FfmpegArchive = 'C:\deps\ffmpeg-release.7z'
+& .\packaging\windows\build-release.ps1 @release
 ```
 
 ## Individual commands
@@ -90,13 +95,9 @@ ctest --preset release-package
 cmake --install .\build\windows-package --config Release --prefix .\build\windows-package\stage
 
 pwsh .\packaging\windows\package-release.ps1 <explicit package parameters>
-pwsh .\packaging\windows\smoke-test.ps1 `
-  -PackageDirectory .\build\windows-package\stage `
-  -Version v2.1.1 `
-  -SmokeExecutable .\build\windows-package\ClipCutterPackageSmoke.exe
+pwsh .\packaging\windows\smoke-test.ps1 -PackageDirectory .\build\windows-package\stage -Version v2.1.1 -SmokeExecutable .\build\windows-package\ClipCutterPackageSmoke.exe
 
-pwsh .\packaging\windows\generate-release-notes.ps1 `
-  -PreviousTag v2.1.0 -CurrentTag v2.1.1 -OutputPath .\out\release\release-notes-v2.1.1.md
+pwsh .\packaging\windows\generate-release-notes.ps1 -PreviousTag v2.1.0 -CurrentTag v2.1.1 -OutputPath .\out\release\release-notes-v2.1.1.md
 ```
 
 Integration tests receive `CLIPCUTTER_TEST_FFMPEG` and `CLIPCUTTER_TEST_FFPROBE` automatically from `-FfmpegDirectory`.

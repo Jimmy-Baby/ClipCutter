@@ -6,6 +6,30 @@ function Write-Stage {
     Write-Host "==> $Message"
 }
 
+function Enter-ClipCutterMsvcEnvironment {
+    if (Get-Command cl.exe -ErrorAction SilentlyContinue) { return }
+    $programFilesX86 = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86)
+    $vswhere = Join-Path $programFilesX86 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+        throw 'MSVC is not active and vswhere.exe was not found. Install Visual Studio 2022 C++ Build Tools.'
+    }
+    $installation = @(& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath) |
+        Select-Object -First 1
+    if (-not $installation) { throw 'No Visual Studio installation with x64 C++ tools was found.' }
+    $installationPath = $installation.ToString().Trim()
+    $devShellModule = Join-Path $installationPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll'
+    if (-not (Test-Path -LiteralPath $devShellModule -PathType Leaf)) {
+        throw "Visual Studio developer-shell module not found: $devShellModule"
+    }
+    Write-Stage 'Initializing Visual Studio x64 developer environment'
+    Import-Module $devShellModule
+    Enter-VsDevShell -VsInstallPath $installationPath -SkipAutomaticLocation `
+        -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
+    if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
+        throw 'Visual Studio developer environment initialized, but cl.exe remains unavailable.'
+    }
+}
+
 function Invoke-Native {
     param(
         [Parameter(Mandatory)][string]$FilePath,

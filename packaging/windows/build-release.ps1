@@ -1,11 +1,11 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][string]$Version,
-    [Parameter(Mandatory)][string]$PreviousTag,
-    [Parameter(Mandatory)][string]$QtRoot,
-    [Parameter(Mandatory)][string]$FfmpegDirectory,
-    [Parameter(Mandatory)][string]$QtLicenseFile,
-    [Parameter(Mandatory)][string]$FfmpegLicenseFile,
+    [string]$Version,
+    [string]$PreviousTag,
+    [string]$QtRoot,
+    [string]$FfmpegDirectory,
+    [string]$QtLicenseFile,
+    [string]$FfmpegLicenseFile,
     [string]$BuildDirectory,
     [string]$OutputDirectory,
     [ValidateSet('Release')][string]$Configuration = 'Release',
@@ -21,6 +21,20 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Common.ps1')
 
+if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'PowerShell 7 or later is required. Run this script with pwsh.' }
+$requiredInputs = [ordered]@{
+    Version = $Version
+    PreviousTag = $PreviousTag
+    QtRoot = $QtRoot
+    FfmpegDirectory = $FfmpegDirectory
+    QtLicenseFile = $QtLicenseFile
+    FfmpegLicenseFile = $FfmpegLicenseFile
+}
+$missingInputs = @($requiredInputs.GetEnumerator() | Where-Object { [string]::IsNullOrWhiteSpace($_.Value) } | ForEach-Object Key)
+if ($missingInputs.Count -gt 0) {
+    throw "Missing required parameters: $($missingInputs -join ', '). PowerShell backticks must be the final character on a line; prefer the documented hashtable command."
+}
+
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 if (-not $BuildDirectory) { $BuildDirectory = Join-Path $repo 'build\windows-package' }
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $repo 'out\release' }
@@ -32,6 +46,7 @@ $manifestPath = Join-Path $repo 'packaging\dependencies.json'
 
 Write-Stage 'Validating version, tag, working tree, tools, and dependency inputs'
 $semanticVersion = Assert-VersionAndRepositoryState -RepositoryRoot $repo -Version $Version -OfficialRelease:$OfficialRelease
+Enter-ClipCutterMsvcEnvironment
 foreach ($tool in @('cmake', 'ninja', 'ctest', 'git')) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "Required tool not found on PATH: $tool" }
 }
@@ -39,6 +54,16 @@ foreach ($path in @($qt, $ffmpegDir, (Resolve-FullPath $QtLicenseFile), (Resolve
     if (-not (Test-Path -LiteralPath $path)) { throw "Required input not found: $path" }
 }
 $manifest = Get-DependencyManifest $manifestPath
+$qtConfigDirectory = Join-Path $qt 'lib\cmake\Qt6'
+$qtConfig = Join-Path $qtConfigDirectory 'Qt6Config.cmake'
+$qmake = Join-Path $qt 'bin\qmake.exe'
+if (-not (Test-Path -LiteralPath $qtConfig -PathType Leaf) -or -not (Test-Path -LiteralPath $qmake -PathType Leaf)) {
+    throw "QtRoot is not a complete Qt MSVC kit: '$qt'. Expected '$qtConfig' and '$qmake'. Do not escape the underscore in msvc2022_64."
+}
+$qtVersion = (Invoke-Native $qmake @('-query', 'QT_VERSION') -CaptureOutput | Select-Object -First 1).ToString().Trim()
+if ($qtVersion -ne $manifest.qt.testedVersion) {
+    throw "QtRoot reports Qt $qtVersion; packaging/dependencies.json requires $($manifest.qt.testedVersion). CMake's 6.5 value is only the minimum supported API version."
+}
 $ffmpeg = Join-Path $ffmpegDir 'ffmpeg.exe'
 $ffprobe = Join-Path $ffmpegDir 'ffprobe.exe'
 $ffmpegVersion = Get-VersionFromToolLine (Get-ExecutableVersionLine $ffmpeg) 'ffmpeg'
@@ -71,6 +96,7 @@ $configureArguments = @(
     '-DBUILD_TESTING=ON',
     '-DCLIPCUTTER_BUILD_PACKAGING_TOOLS=ON',
     "-DCMAKE_PREFIX_PATH=$qt",
+    "-DQt6_DIR=$qtConfigDirectory",
     "-DCMAKE_INSTALL_PREFIX=$stage"
 )
 Invoke-Native cmake $configureArguments
