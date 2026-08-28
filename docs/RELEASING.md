@@ -52,8 +52,8 @@ Use explicit paths. Start PowerShell 7 with `pwsh`, then paste this hashtable fo
 
 ```powershell
 $release = @{
-    Version           = 'v2.1.1'
-    PreviousTag       = 'v2.1.0'
+    Version           = 'v3.0.0'
+    PreviousTag       = 'v2.1.1'
     QtRoot            = 'C:\Qt\6.11.2\msvc2022_64'
     FfmpegDirectory   = 'C:\deps\ffmpeg\bin'
     QtLicenseFile     = 'C:\Qt\Licenses\LICENSE'
@@ -95,9 +95,9 @@ ctest --preset release-package
 cmake --install .\build\windows-package --config Release --prefix .\build\windows-package\stage
 
 pwsh .\packaging\windows\package-release.ps1 <explicit package parameters>
-pwsh .\packaging\windows\smoke-test.ps1 -PackageDirectory .\build\windows-package\stage -Version v2.1.1 -SmokeExecutable .\build\windows-package\ClipCutterPackageSmoke.exe
+pwsh .\packaging\windows\smoke-test.ps1 -PackageDirectory .\build\windows-package\stage -Version v3.0.0 -SmokeExecutable .\build\windows-package\ClipCutterPackageSmoke.exe
 
-pwsh .\packaging\windows\generate-release-notes.ps1 -PreviousTag v2.1.0 -CurrentTag v2.1.1 -OutputPath .\out\release\release-notes-v2.1.1.md
+pwsh .\packaging\windows\generate-release-notes.ps1 -PreviousTag v2.1.1 -CurrentTag v3.0.0 -OutputPath .\out\release\release-notes-v3.0.0.md
 ```
 
 Integration tests receive `CLIPCUTTER_TEST_FFMPEG` and `CLIPCUTTER_TEST_FFPROBE` automatically from `-FfmpegDirectory`.

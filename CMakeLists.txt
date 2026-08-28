@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(ClipCutter VERSION 2.1.1 LANGUAGES CXX)
+project(ClipCutter VERSION 3.0.0 LANGUAGES CXX)
 
 option(CLIPCUTTER_WARNINGS_AS_ERRORS "Treat first-party compiler warnings as errors" OFF)
 option(CLIPCUTTER_BUILD_PACKAGING_TOOLS "Build local release packaging diagnostics" OFF)

@@ -1297,6 +1297,8 @@ void ClipCutter::MainWindow::SetupWorkflowUi()
     Ui_->gridLayout->addWidget(MainSplitter_, 4, 2, 2, 6);
 
     auto* outputDestinationBox = new QGroupBox(QStringLiteral("Destination and naming"), Ui_->centralWidget);
+    outputDestinationBox->setObjectName(QStringLiteral("outputDestinationBox"));
+    outputDestinationBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
     auto* destinationLayout = new QHBoxLayout(outputDestinationBox);
     DestinationModeCombo_ = new QComboBox(outputDestinationBox);
     DestinationModeCombo_->addItem(QStringLiteral("Beside each source"), 0);
@@ -1311,6 +1313,9 @@ void ClipCutter::MainWindow::SetupWorkflowUi()
     destinationLayout->addWidget(DestinationBrowseButton_);
     destinationLayout->addWidget(OutputPreviewLabel_, 2);
     Ui_->gridLayout->addWidget(outputDestinationBox, 3, 2, 1, 6);
+    Ui_->gridLayout->setRowStretch(3, 0);
+    Ui_->gridLayout->setRowStretch(4, 1);
+    Ui_->gridLayout->setRowStretch(5, 1);
 
     QueueFilterEdit_ = new QLineEdit(Ui_->clipsGroupBox);
     QueueFilterEdit_->setPlaceholderText(QStringLiteral("Filter source, output, prefix, status, keep/skip"));
@@ -1435,7 +1440,7 @@ void ClipCutter::MainWindow::SetupWorkflowUi()
         {
             QMessageBox::about(this, QStringLiteral("About ClipCutter"),
                 QStringLiteral("<h3>ClipCutter %1</h3><p>Batch video clip editor.</p>"
-                               "<p>Copyright © 2023 Jim Bab. Licensed under MIT.</p>")
+                               "<p>Copyright © 2023 jimbab. Licensed under MIT.</p>")
                     .arg(QStringLiteral(CLIPCUTTER_VERSION_STRING)));
         });
     timelineMenu->addAction(QStringLiteral("Zoom to full duration"), QKeySequence(QStringLiteral("Ctrl+Shift+0")),
