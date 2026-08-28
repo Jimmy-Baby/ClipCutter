@@ -8,6 +8,7 @@
 #include <QDate>
 
 #include <vector>
+#include <functional>
 
 namespace ClipCutter
 {
@@ -70,12 +71,26 @@ public:
     Qt::ItemFlags flags(const QModelIndex& index) const override;
     bool setData(const QModelIndex& index, const QVariant& value, int role = Qt::EditRole) override;
     QHash<int, QByteArray> roleNames() const override;
+    using EditInterceptor = std::function<bool(const QModelIndex&, const QVariant&, int)>;
+    void SetEditInterceptor(EditInterceptor interceptor);
 
     void AddClip(Clip clip);
     void AddClips(QVector<Clip> clips);
+    bool InsertClip(int clipIndex, Clip clip);
     void ReplaceClips(std::vector<Clip> clips);
     void ClearClips();
     bool RemoveEntries(const QSet<QUuid>& segmentIds);
+    bool InsertSegment(const QUuid& clipId, Segment segment, int segmentIndex = -1);
+    bool RemoveSegment(const QUuid& segmentId);
+    bool MoveSegment(const QUuid& segmentId, int destinationIndex);
+    std::optional<QUuid> CreateSegment(const QUuid& clipId, const TimeRange& range,
+                                       const QString& namingPattern = {}, const QDate& date = QDate::currentDate(),
+                                       QString* error = nullptr);
+    std::optional<QUuid> CreateSegmentAtPlayhead(const QUuid& clipId, std::chrono::milliseconds playhead,
+                                                 const QString& namingPattern = {},
+                                                 const QDate& date = QDate::currentDate(), QString* error = nullptr);
+    std::optional<QUuid> DuplicateSegment(const QUuid& segmentId, const QString& namingPattern = {},
+                                          const QDate& date = QDate::currentDate(), QString* error = nullptr);
 
     Clip* FindClip(const QUuid& clipId);
     const Clip* FindClip(const QUuid& clipId) const;
@@ -83,6 +98,9 @@ public:
     const Segment* FindSegment(const QUuid& segmentId) const;
     int RowForClip(const QUuid& clipId) const;
     int RowForSegment(const QUuid& segmentId) const;
+    int ClipIndex(const QUuid& clipId) const;
+    int SegmentIndex(const QUuid& segmentId) const;
+    QUuid ClipIdForSegment(const QUuid& segmentId) const;
     QUuid ClipIdAtRow(int row) const;
     QUuid SegmentIdAtRow(int row) const;
 
@@ -92,6 +110,8 @@ public:
     bool InvertSkipStates(const QSet<QUuid>& segmentIds = {});
     bool UpdateOutputName(const QUuid& segmentId, const QString& outputFileName);
     bool UpdateOutputBaseName(const QUuid& segmentId, const QString& outputBaseName);
+    bool UpdateNamingTemplateData(const QUuid& segmentId, const QString& outputBaseName,
+                                  std::optional<QString> namingTemplatePattern);
     bool UpdateTrimRange(const QUuid& segmentId, const TimeRange& range, QString* error = nullptr);
     bool UpdateMediaDuration(const QUuid& clipId, std::chrono::milliseconds duration, QString* error = nullptr);
     bool UpdateMediaInfo(const QUuid& clipId, const QString& expectedSourcePath, const MediaInfo& info);
@@ -135,11 +155,15 @@ private:
 
     RowRef GetRowRef(int row);
     ConstRowRef GetRowRef(int row) const;
+    int FirstRowForClipIndex(int clipIndex) const;
+    bool AssignDeterministicName(Clip& clip, Segment& segment, int segmentIndex,
+                                 const QString& namingPattern, const QDate& date, QString* error) const;
     static QString StatusText(const Clip& clip, const Segment& segment);
     static QString TimeText(std::chrono::milliseconds value);
     static bool IsRuntimeEditable(EExportState state);
 
     std::vector<Clip> Clips_;
+    EditInterceptor EditInterceptor_;
 };
 } // namespace ClipCutter
 

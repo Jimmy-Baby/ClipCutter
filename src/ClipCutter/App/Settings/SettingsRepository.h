@@ -26,9 +26,10 @@ struct ApplicationSettings
     bool PreserveMetadata = true;
     bool RecursiveFolderImport = false;
     QStringList SavedPrefixes;
-    QString SelectedNamingTemplate = QStringLiteral("{prefix}{original}");
+    QString SelectedNamingTemplate = QStringLiteral("{prefix}{original}_{segment:02}");
     QStringList RecentSessionFiles;
     bool TimelineAutoPlay = true;
+    double TimelineZoomFactor = 1.0;
 };
 
 class SettingsRepository final

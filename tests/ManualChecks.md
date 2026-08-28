@@ -17,3 +17,9 @@
 15. Delete a session source and reopen. Confirm the missing row remains, other rows load, and **Relink Missing Sources** restores it and starts asynchronous probing.
 16. Modify a saved and an unnamed session, wait for debounce, then terminate without a clean close. Restart and recover. Confirm recovery is offered only when newer and never overwrites the explicit session file.
 17. Start export in each destination mode after accepting the batch-path preview. Confirm correct final paths, responsive UI, state/progress updates, cancellation cleanup, retries, and inspectable diagnostics.
+18. From one source, create ranges from the active selection and playhead, duplicate them, rename them, reorder them, toggle keep/skip, save, close, and reopen. Confirm IDs, order, active selection, names, profiles, and skip state survive.
+19. Undo and redo segment additions, duplicates, deletions (including the final segment), range changes, marker drags, keyboard nudges, reorder operations, naming changes, profiles, and every batch command. Confirm one marker drag is one history item and repeated nudges merge.
+20. Zoom to a short range, zoom further, scroll horizontally, zoom to full duration, and jump to in/out/previous/next. Confirm displayed time values and marker positions remain stable for very short and multi-hour media.
+21. Step frames on CFR and VFR samples. Confirm CFR intervals follow the probed rational rate, VFR reports approximation, and preview text never claims QMediaPlayer frame accuracy.
+22. Enable range looping, allow playback to overshoot the out marker repeatedly, and confirm each seek returns to in without recursion. Confirm empty/invalid ranges disable looping and loop-off playback is unchanged.
+23. Pan and zoom while thumbnails load, then switch sources rapidly. Confirm the UI stays responsive, placeholders remain visible, process concurrency stays bounded, and stale thumbnails never appear on the new source.

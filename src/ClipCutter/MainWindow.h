@@ -11,6 +11,8 @@
 #include "Core/Export/OutputPathPlanner.h"
 #include "Core/Export/OutputDestination.h"
 #include "Core/Session/SessionRepository.h"
+#include "Core/Timeline/TimelineMath.h"
+#include "App/Timeline/TimelineWidget.h"
 
 #include <QDir>
 #include <QHash>
@@ -19,6 +21,7 @@
 #include <QUuid>
 
 class QAudioOutput;
+class QAction;
 class QCloseEvent;
 class QComboBox;
 class QDragEnterEvent;
@@ -33,6 +36,7 @@ class QVideoWidget;
 class QCheckBox;
 class QSplitter;
 class QTimer;
+class QUndoStack;
 
 QT_BEGIN_NAMESPACE
 namespace Ui
@@ -73,6 +77,16 @@ private:
     void ActionStopTriggered();
     void ActionSetStartTriggered();
     void ActionSetEndTriggered();
+    void CreateSegmentFromCurrentRange();
+    void CreateSegmentAtCurrentPlayhead();
+    void DuplicateCurrentSegment();
+    void DeleteCurrentSegment();
+    void MoveCurrentSegment(int delta);
+    void ResetCurrentSegment();
+    void NudgePlayhead(qint64 deltaMs);
+    void NudgeMarker(bool inMarker, qint64 deltaMs);
+    void StepFrame(qint64 frameCount);
+    void SetLoopSelectionEnabled(bool enabled);
     void OnVolumeChanged(int volume);
     void OnPlayerDurationChanged(qint64 duration);
     void OnPlayerPositionChanged(qint64 position);
@@ -87,6 +101,8 @@ private:
     void UpdateKeywordUi();
     void UpdateCurrentVideoName();
     void UpdateActionStates();
+    void RefreshTimeline();
+    void UpdateSessionTitle();
     void ClearCurrentClipUi();
     void LoadImportedClips(ImportResult result, const QDir& directory = {}, const QString& preparedOutputDirectory = {});
     void ImportPaths(const QStringList& paths);
@@ -144,6 +160,13 @@ private:
     ApplicationSettings ApplicationSettings_;
     SessionDirtyState SessionState_;
     QTimer* AutosaveTimer_;
+    QUndoStack* UndoStack_;
+    TimelineWidget* TimelineWidget_ = nullptr;
+    FfmpegThumbnailProvider* ThumbnailProvider_;
+    LoopRangeController LoopController_;
+    QLabel* SourceLabel_ = nullptr;
+    QLabel* ActiveSegmentLabel_ = nullptr;
+    QAction* LoopSelectionAction_ = nullptr;
     QSplitter* MainSplitter_ = nullptr;
     QComboBox* DestinationModeCombo_ = nullptr;
     QLineEdit* DestinationEdit_ = nullptr;

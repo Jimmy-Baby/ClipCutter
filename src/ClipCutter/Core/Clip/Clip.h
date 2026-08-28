@@ -16,6 +16,7 @@ struct Clip
     QString SourcePath;
     QString OriginalFileName;
     MediaInfo MediaInformation;
+    QString ThumbnailSourceFingerprint;
     QVector<Segment> Segments;
 };
 } // namespace ClipCutter

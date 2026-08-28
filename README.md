@@ -176,10 +176,12 @@ Release archives already include FFmpeg and the required Qt runtime files. Local
 ### CMake targets
 
 - `clipcutter_core`: reusable queue, naming, utility, and FFmpeg implementation.
+- `clipcutter_widgets`: timeline, thumbnail-provider, and undo-command implementation.
 - `ClipCutter`: `Main.cpp`, the main window/UI form, and Qt resources.
 - `ClipCutterTests`: Qt Test regression tests registered with CTest.
 - `ClipCutterExportTests`: deterministic export-engine tests using an injected process runner.
 - `ClipCutterMediaCorrectnessTests`: probe, profile, path, finalisation, metadata, and verification tests.
+- `ClipCutterAdvancedEditingTests`: segment lifecycle, migration, undo, timeline, loop, frame-step, thumbnail, and export-snapshot tests.
 
 CMake generates UIC, MOC, and RCC output inside the selected build directory. Generated headers such as `ui_MainWindow.h` must never be generated in or committed from the source tree.
 
@@ -239,6 +241,20 @@ $env:CLIPCUTTER_TEST_FFMPEG = "C:\path\to\ffmpeg.exe"
 $env:CLIPCUTTER_TEST_FFPROBE = "C:\path\to\ffprobe.exe"
 ctest --preset debug
 ```
+
+### Advanced editing architecture
+
+`Clip` owns the stable source ID, source path, `MediaInfo`, source probe/thumbnail fingerprint, and ordered `QVector<Segment>`. `Segment` owns only segment-specific state: stable ID, `TimeRange`, output naming/template/prefix, skip state, output profile, and export runtime state. Reordering moves values without regenerating IDs. Every transient `ExportSegment` and `ExportJob` contains one segment ID; source metadata is copied only into the immutable export snapshot, not stored on each domain segment.
+
+`TimelineCoordinateMapper` is independent of painting. It maps the visible `[start,end]` media interval to a floating-point viewport width, clamps all times to a positive 64-bit millisecond duration, limits zoom to `[1,duration-in-ms]`, and preserves an anchor while zooming. `TimelineWidget` uses that mapper for painting, hit testing, click/drag seeking, marker dragging, the thumbnail strip, scale ticks, zoom, and horizontal scrolling. Marker preview state stays inside the widget; a completed drag emits one commit, preventing intermediate mouse moves from flooding `QUndoStack`.
+
+Undo commands cover in/out moves, complete range replacement, add, duplicate, delete, reorder, rename, prefix, template, skip/keep, output profile, and batch command groups. Keyboard marker nudges merge by command type and segment ID. Deletion snapshots the original clip/segment indices, so undo restores the same IDs and ordering even when deleting the source's final segment. Saving marks the stack clean; opening or creating a session clears history.
+
+`FfmpegThumbnailProvider` accepts a visible range rather than paint requests. A request generation cancels stale queued/running extraction, concurrency is capped, and cache reads plus pruning run off the GUI thread. Cache keys hash canonical source path, size, modification time, timestamp, and requested dimensions. JPEGs live under the platform application cache directory, invalid entries are discarded, and least-recently-written files are removed above the configured byte limit. Thumbnail failure emits a separate diagnostic and does not affect playback, probing, or export.
+
+Session schema 2 stores ordered segment arrays plus active clip/segment IDs. Schema 1 clip objects with a single range are explicitly migrated to a one-element segment array; supplied segment IDs, range, name, profile, and skip state are retained. Existing schema 1 segment arrays also load unchanged and are written as schema 2 on the next save. Autosave/recovery uses the same migration path.
+
+Waveform extraction is intentionally absent. A future implementation can add a waveform lane to `TimelineWidget` beside the existing thumbnail lane and reuse `TimelineCoordinateMapper` plus viewport-change notifications. A provider abstraction should be introduced only when real decoded waveform data and cancellation/cache semantics are implemented.
 
 ## Contributing
 

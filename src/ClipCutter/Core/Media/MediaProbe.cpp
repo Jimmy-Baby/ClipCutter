@@ -26,7 +26,13 @@ std::optional<std::chrono::milliseconds> ParseDuration(const QJsonValue& value)
     return std::chrono::milliseconds{qRound64(seconds * 1000.0)};
 }
 
-void ParseFrameRate(const QString& text, MediaInfo& info)
+struct RationalRate
+{
+    int Numerator = 0;
+    int Denominator = 1;
+};
+
+std::optional<RationalRate> ParseFrameRate(const QString& text)
 {
     const QStringList parts = text.split(QLatin1Char('/'));
     bool numeratorOk = false;
@@ -35,10 +41,8 @@ void ParseFrameRate(const QString& text, MediaInfo& info)
     const int denominator = parts.size() == 2 ? parts.at(1).toInt(&denominatorOk) : 1;
     denominatorOk = parts.size() == 1 || denominatorOk;
     if (numeratorOk && denominatorOk && numerator > 0 && denominator > 0)
-    {
-        info.FrameRateNumerator = numerator;
-        info.FrameRateDenominator = denominator;
-    }
+        return RationalRate{numerator, denominator};
+    return std::nullopt;
 }
 } // namespace
 
@@ -168,9 +172,20 @@ MediaInfo MediaProbe::ParseJson(const QByteArray& json, QString* error)
                 const int height = stream.value(QStringLiteral("height")).toInt();
                 if (width > 0) info.Width = width;
                 if (height > 0) info.Height = height;
-                ParseFrameRate(stream.value(QStringLiteral("avg_frame_rate")).toString(), info);
-                if (!info.FrameRateNumerator.has_value())
-                    ParseFrameRate(stream.value(QStringLiteral("r_frame_rate")).toString(), info);
+                const auto averageRate = ParseFrameRate(stream.value(QStringLiteral("avg_frame_rate")).toString());
+                const auto nominalRate = ParseFrameRate(stream.value(QStringLiteral("r_frame_rate")).toString());
+                const auto selectedRate = averageRate.has_value() ? averageRate : nominalRate;
+                if (selectedRate.has_value())
+                {
+                    info.FrameRateNumerator = selectedRate->Numerator;
+                    info.FrameRateDenominator = selectedRate->Denominator;
+                }
+                if (averageRate.has_value() && nominalRate.has_value())
+                {
+                    const qint64 left = static_cast<qint64>(averageRate->Numerator) * nominalRate->Denominator;
+                    const qint64 right = static_cast<qint64>(nominalRate->Numerator) * averageRate->Denominator;
+                    info.VariableFrameRate = left != right;
+                }
             }
             if (!info.CreationTime.has_value())
             {

@@ -28,6 +28,7 @@ struct MediaInfo
     std::optional<int> Height;
     std::optional<int> FrameRateNumerator;
     std::optional<int> FrameRateDenominator;
+    std::optional<bool> VariableFrameRate;
     std::optional<bool> HasAudio;
     QVector<int> VideoStreamIndices;
     QVector<int> AudioStreamIndices;

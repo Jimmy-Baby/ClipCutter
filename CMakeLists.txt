@@ -86,6 +86,8 @@ target_sources(clipcutter_core PRIVATE
     "${CLIPCUTTER_SOURCE_DIR}/Core/Naming/NamingTemplate.h"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Session/SessionRepository.cpp"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Session/SessionRepository.h"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Timeline/TimelineMath.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/Core/Timeline/TimelineMath.h"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Diagnostics/StartupDiagnostics.cpp"
     "${CLIPCUTTER_SOURCE_DIR}/Core/Diagnostics/StartupDiagnostics.h"
 )
@@ -97,6 +99,20 @@ target_link_libraries(clipcutter_core PUBLIC
 )
 target_compile_features(clipcutter_core PUBLIC cxx_std_17)
 clipcutter_configure_first_party_target(clipcutter_core)
+
+add_library(clipcutter_widgets STATIC)
+target_sources(clipcutter_widgets PRIVATE
+    "${CLIPCUTTER_SOURCE_DIR}/App/Timeline/ThumbnailProvider.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/App/Timeline/ThumbnailProvider.h"
+    "${CLIPCUTTER_SOURCE_DIR}/App/Timeline/TimelineWidget.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/App/Timeline/TimelineWidget.h"
+    "${CLIPCUTTER_SOURCE_DIR}/App/Undo/SegmentCommands.cpp"
+    "${CLIPCUTTER_SOURCE_DIR}/App/Undo/SegmentCommands.h"
+)
+target_include_directories(clipcutter_widgets PUBLIC "$<BUILD_INTERFACE:${CLIPCUTTER_SOURCE_DIR}>")
+target_link_libraries(clipcutter_widgets PUBLIC clipcutter_core Qt6::Gui Qt6::Widgets)
+target_compile_features(clipcutter_widgets PUBLIC cxx_std_17)
+clipcutter_configure_first_party_target(clipcutter_widgets)
 
 qt_add_executable(ClipCutter WIN32)
 target_sources(ClipCutter PRIVATE
@@ -111,6 +127,7 @@ target_include_directories(ClipCutter PRIVATE
 )
 target_link_libraries(ClipCutter PRIVATE
     clipcutter_core
+    clipcutter_widgets
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
@@ -177,6 +194,16 @@ if(BUILD_TESTING)
     target_compile_features(ClipCutterWorkflowPersistenceTests PRIVATE cxx_std_17)
     clipcutter_configure_first_party_target(ClipCutterWorkflowPersistenceTests)
     add_test(NAME ClipCutterWorkflowPersistenceTests COMMAND ClipCutterWorkflowPersistenceTests)
+
+    qt_add_executable(ClipCutterAdvancedEditingTests)
+    target_sources(ClipCutterAdvancedEditingTests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/AdvancedEditingTests.cpp"
+    )
+    target_include_directories(ClipCutterAdvancedEditingTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_link_libraries(ClipCutterAdvancedEditingTests PRIVATE clipcutter_widgets Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+    target_compile_features(ClipCutterAdvancedEditingTests PRIVATE cxx_std_17)
+    clipcutter_configure_first_party_target(ClipCutterAdvancedEditingTests)
+    add_test(NAME ClipCutterAdvancedEditingTests COMMAND ClipCutterAdvancedEditingTests)
     if(WIN32)
         set_tests_properties(ClipCutterTests PROPERTIES
             ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
@@ -188,6 +215,9 @@ if(BUILD_TESTING)
             ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
         )
         set_tests_properties(ClipCutterWorkflowPersistenceTests PROPERTIES
+            ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+        )
+        set_tests_properties(ClipCutterAdvancedEditingTests PROPERTIES
             ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
         )
     endif()

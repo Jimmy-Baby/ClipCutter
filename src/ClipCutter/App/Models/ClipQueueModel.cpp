@@ -185,6 +185,8 @@ bool ClipQueueModel::setData(const QModelIndex& index, const QVariant& value, co
         return false;
     }
 
+    if (EditInterceptor_) return EditInterceptor_(index, value, role);
+
     if (index.column() == SkipColumn && role == Qt::CheckStateRole)
     {
         return UpdateSkipState(segmentId, value.toInt() == Qt::Checked);
@@ -196,6 +198,11 @@ bool ClipQueueModel::setData(const QModelIndex& index, const QVariant& value, co
     }
 
     return false;
+}
+
+void ClipQueueModel::SetEditInterceptor(EditInterceptor interceptor)
+{
+    EditInterceptor_ = std::move(interceptor);
 }
 
 QHash<int, QByteArray> ClipQueueModel::roleNames() const
@@ -261,6 +268,20 @@ void ClipQueueModel::AddClips(QVector<Clip> clips)
     }
 }
 
+bool ClipQueueModel::InsertClip(const int clipIndex, Clip clip)
+{
+    if (clipIndex < 0 || clipIndex > static_cast<int>(Clips_.size()) || clip.Id.isNull() || FindClip(clip.Id) != nullptr)
+        return false;
+    for (const Segment& segment : clip.Segments)
+        if (segment.Id.isNull() || FindSegment(segment.Id) != nullptr) return false;
+    const int firstRow = FirstRowForClipIndex(clipIndex);
+    if (!clip.Segments.isEmpty())
+        beginInsertRows({}, firstRow, firstRow + clip.Segments.size() - 1);
+    Clips_.insert(Clips_.begin() + clipIndex, std::move(clip));
+    if (!Clips_.at(static_cast<std::size_t>(clipIndex)).Segments.isEmpty()) endInsertRows();
+    return true;
+}
+
 void ClipQueueModel::ReplaceClips(std::vector<Clip> clips)
 {
     beginResetModel();
@@ -322,6 +343,135 @@ bool ClipQueueModel::RemoveEntries(const QSet<QUuid>& segmentIds)
     }
 
     return removed;
+}
+
+bool ClipQueueModel::InsertSegment(const QUuid& clipId, Segment segment, int segmentIndex)
+{
+    Clip* clip = FindClip(clipId);
+    if (clip == nullptr || segment.Id.isNull() || FindSegment(segment.Id) != nullptr) return false;
+    if (segmentIndex < 0) segmentIndex = clip->Segments.size();
+    if (segmentIndex < 0 || segmentIndex > clip->Segments.size()) return false;
+    const int clipIndex = ClipIndex(clipId);
+    const int row = FirstRowForClipIndex(clipIndex) + segmentIndex;
+    beginInsertRows({}, row, row);
+    clip->Segments.insert(segmentIndex, std::move(segment));
+    endInsertRows();
+    return true;
+}
+
+bool ClipQueueModel::RemoveSegment(const QUuid& segmentId)
+{
+    return RemoveEntries({segmentId});
+}
+
+bool ClipQueueModel::MoveSegment(const QUuid& segmentId, int destinationIndex)
+{
+    const QUuid clipId = ClipIdForSegment(segmentId);
+    Clip* clip = FindClip(clipId);
+    const int sourceIndex = SegmentIndex(segmentId);
+    if (clip == nullptr || sourceIndex < 0 || destinationIndex < 0 || destinationIndex >= clip->Segments.size())
+        return false;
+    if (sourceIndex == destinationIndex) return true;
+    const int firstRow = FirstRowForClipIndex(ClipIndex(clipId));
+    const int destinationChild = destinationIndex > sourceIndex ? firstRow + destinationIndex + 1
+                                                                 : firstRow + destinationIndex;
+    if (!beginMoveRows({}, firstRow + sourceIndex, firstRow + sourceIndex, {}, destinationChild)) return false;
+    clip->Segments.move(sourceIndex, destinationIndex);
+    endMoveRows();
+    return true;
+}
+
+bool ClipQueueModel::AssignDeterministicName(Clip& clip, Segment& segment, const int segmentIndex,
+                                             const QString& namingPattern, const QDate& date, QString* error) const
+{
+    const QString pattern = namingPattern.isEmpty() ? NamingTemplate::DefaultPattern() : namingPattern;
+    NamingTemplateContext context;
+    context.Original = QFileInfo(clip.OriginalFileName).completeBaseName();
+    context.Prefix = segment.Prefix.value_or(QString());
+    context.Index = FirstRowForClipIndex(ClipIndex(clip.Id)) + segmentIndex + 1;
+    context.Segment = segmentIndex + 1;
+    context.Date = date;
+    context.Profile = segment.ExportProfileId;
+    const NamingTemplateResult rendered = NamingTemplate::Render(pattern, context);
+    if (!rendered.IsValid())
+    {
+        if (error != nullptr) *error = rendered.Error;
+        return false;
+    }
+    QString candidate = rendered.Value;
+    QSet<QString> existing;
+    for (const Segment& value : clip.Segments) existing.insert(value.OutputBaseName.toCaseFolded());
+    if (existing.contains(candidate.toCaseFolded()))
+    {
+        const QString base = candidate;
+        int suffix = 2;
+        do candidate = QStringLiteral("%1_%2").arg(base).arg(suffix++, 2, 10, QLatin1Char('0'));
+        while (existing.contains(candidate.toCaseFolded()));
+    }
+    segment.OutputBaseName = candidate;
+    segment.NamingTemplatePattern = pattern;
+    return true;
+}
+
+std::optional<QUuid> ClipQueueModel::CreateSegment(const QUuid& clipId, const TimeRange& range,
+                                                    const QString& namingPattern, const QDate& date, QString* error)
+{
+    Clip* clip = FindClip(clipId);
+    if (clip == nullptr)
+    {
+        if (error != nullptr) *error = QStringLiteral("Clip was not found.");
+        return std::nullopt;
+    }
+    if (!range.IsValid(clip->MediaInformation.Duration, true, error)) return std::nullopt;
+    Segment segment;
+    segment.Range = range;
+    segment.TrimRangeUserEdited = true;
+    segment.ExportProfileId = clip->Segments.isEmpty() ? QStringLiteral("fast-copy") : clip->Segments.constFirst().ExportProfileId;
+    if (const OutputProfile* profile = OutputProfiles::Find(segment.ExportProfileId))
+        segment.OutputExtension = OutputProfiles::ExtensionFor(*profile, clip->SourcePath);
+    if (!AssignDeterministicName(*clip, segment, clip->Segments.size(), namingPattern, date, error)) return std::nullopt;
+    const QUuid id = segment.Id;
+    return InsertSegment(clipId, std::move(segment)) ? std::optional<QUuid>{id} : std::nullopt;
+}
+
+std::optional<QUuid> ClipQueueModel::CreateSegmentAtPlayhead(const QUuid& clipId,
+                                                              const std::chrono::milliseconds playhead,
+                                                              const QString& namingPattern,
+                                                              const QDate& date, QString* error)
+{
+    const Clip* clip = FindClip(clipId);
+    if (clip == nullptr || !clip->MediaInformation.Duration.has_value())
+    {
+        if (error != nullptr) *error = QStringLiteral("A known source duration is required.");
+        return std::nullopt;
+    }
+    const auto range = TimeRange::Create(playhead, *clip->MediaInformation.Duration,
+                                         clip->MediaInformation.Duration, true, error);
+    return range.has_value() ? CreateSegment(clipId, *range, namingPattern, date, error) : std::nullopt;
+}
+
+std::optional<QUuid> ClipQueueModel::DuplicateSegment(const QUuid& segmentId, const QString& namingPattern,
+                                                       const QDate& date, QString* error)
+{
+    const QUuid clipId = ClipIdForSegment(segmentId);
+    Clip* clip = FindClip(clipId);
+    const int sourceIndex = SegmentIndex(segmentId);
+    if (clip == nullptr || sourceIndex < 0)
+    {
+        if (error != nullptr) *error = QStringLiteral("Segment was not found.");
+        return std::nullopt;
+    }
+    Segment duplicate = clip->Segments.at(sourceIndex);
+    duplicate.Id = QUuid::createUuid();
+    duplicate.ExportState = EExportState::Pending;
+    duplicate.ExportProgress.reset();
+    duplicate.ExportLog.clear();
+    duplicate.ExportLocked = false;
+    const QString pattern = namingPattern.isEmpty() ? duplicate.NamingTemplatePattern.value_or(NamingTemplate::DefaultPattern())
+                                                     : namingPattern;
+    if (!AssignDeterministicName(*clip, duplicate, sourceIndex + 1, pattern, date, error)) return std::nullopt;
+    const QUuid id = duplicate.Id;
+    return InsertSegment(clipId, std::move(duplicate), sourceIndex + 1) ? std::optional<QUuid>{id} : std::nullopt;
 }
 
 Clip* ClipQueueModel::FindClip(const QUuid& clipId)
@@ -407,6 +557,29 @@ int ClipQueueModel::RowForSegment(const QUuid& segmentId) const
     }
 
     return -1;
+}
+
+int ClipQueueModel::ClipIndex(const QUuid& clipId) const
+{
+    for (int index = 0; index < static_cast<int>(Clips_.size()); ++index)
+        if (Clips_.at(static_cast<std::size_t>(index)).Id == clipId) return index;
+    return -1;
+}
+
+int ClipQueueModel::SegmentIndex(const QUuid& segmentId) const
+{
+    for (const Clip& clip : Clips_)
+        for (int index = 0; index < clip.Segments.size(); ++index)
+            if (clip.Segments.at(index).Id == segmentId) return index;
+    return -1;
+}
+
+QUuid ClipQueueModel::ClipIdForSegment(const QUuid& segmentId) const
+{
+    for (const Clip& clip : Clips_)
+        for (const Segment& segment : clip.Segments)
+            if (segment.Id == segmentId) return clip.Id;
+    return {};
 }
 
 QUuid ClipQueueModel::ClipIdAtRow(const int row) const
@@ -529,6 +702,28 @@ bool ClipQueueModel::UpdateOutputName(const QUuid& segmentId, const QString& out
     const int row = RowForSegment(segmentId);
     emit dataChanged(index(row, OutputNameColumn), index(row, OutputNameColumn),
                      {Qt::DisplayRole, Qt::EditRole, OutputFileNameRole});
+
+    return true;
+}
+
+bool ClipQueueModel::UpdateNamingTemplateData(const QUuid& segmentId, const QString& outputBaseName,
+                                              std::optional<QString> namingTemplatePattern)
+{
+    Segment* segment = FindSegment(segmentId);
+
+    if (segment == nullptr) return false;
+
+    const bool changed = segment->OutputBaseName != outputBaseName ||
+                         segment->NamingTemplatePattern != namingTemplatePattern;
+    segment->OutputBaseName = outputBaseName;
+    segment->NamingTemplatePattern = std::move(namingTemplatePattern);
+
+    if (changed)
+    {
+        const int row = RowForSegment(segmentId);
+        emit dataChanged(index(row, OutputNameColumn), index(row, OutputNameColumn),
+                         {Qt::DisplayRole, Qt::EditRole, OutputFileNameRole, NamingTemplateRole});
+    }
 
     return true;
 }
@@ -775,9 +970,7 @@ bool ClipQueueModel::ApplyNamingTemplate(const QSet<QUuid>& segmentIds, const QS
     }
     for (int index = 0; index < ids.size(); ++index)
     {
-        Segment* segment = FindSegment(ids.at(index));
-        segment->NamingTemplatePattern = pattern;
-        UpdateOutputBaseName(ids.at(index), rendered.Values.at(index));
+        UpdateNamingTemplateData(ids.at(index), rendered.Values.at(index), pattern);
     }
     return true;
 }
@@ -1003,7 +1196,8 @@ QVector<ExportSegment> ClipQueueModel::ExportSegments(QStringList* errors) const
                 clip.Id,
                 segment.Id,
                 clip.SourcePath,
-                segment.Prefix.value_or(QString()) + segment.OutputBaseName,
+                (segment.NamingTemplatePattern.has_value() ? QString() : segment.Prefix.value_or(QString())) +
+                    segment.OutputBaseName,
                 segment.OutputExtension,
                 segment.OutputFileName(),
                 segment.Range,
@@ -1099,6 +1293,15 @@ ClipQueueModel::ConstRowRef ClipQueueModel::GetRowRef(const int row) const
     }
 
     return {};
+}
+
+int ClipQueueModel::FirstRowForClipIndex(const int clipIndex) const
+{
+    if (clipIndex < 0 || clipIndex > static_cast<int>(Clips_.size())) return -1;
+    int row = 0;
+    for (int index = 0; index < clipIndex; ++index)
+        row += Clips_.at(static_cast<std::size_t>(index)).Segments.size();
+    return row;
 }
 
 QString ClipQueueModel::StatusText(const Clip& clip, const Segment& segment)

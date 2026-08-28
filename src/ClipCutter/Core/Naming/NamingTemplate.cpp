@@ -24,18 +24,19 @@ QString RenderToken(const QString& token, const NamingTemplateContext& context, 
     if (token == QStringLiteral("segment")) return QString::number(context.Segment);
     if (token == QStringLiteral("index")) return QString::number(context.Index);
 
-    static const QRegularExpression paddedIndex(QStringLiteral(R"(^index:(0[1-9][0-9]*)$)"));
-    const QRegularExpressionMatch match = paddedIndex.match(token);
+    static const QRegularExpression paddedNumber(QStringLiteral(R"(^(index|segment):(0[1-9][0-9]*)$)"));
+    const QRegularExpressionMatch match = paddedNumber.match(token);
     if (match.hasMatch())
     {
         bool ok = false;
-        const int width = match.captured(1).toInt(&ok);
+        const int width = match.captured(2).toInt(&ok);
         if (!ok || width < 1 || width > 64)
         {
-            error = QStringLiteral("Invalid index padding token {%1}; width must be between 1 and 64.").arg(token);
+            error = QStringLiteral("Invalid numeric padding token {%1}; width must be between 1 and 64.").arg(token);
             return {};
         }
-        return QStringLiteral("%1").arg(context.Index, width, 10, QLatin1Char('0'));
+        const int value = match.captured(1) == QStringLiteral("segment") ? context.Segment : context.Index;
+        return QStringLiteral("%1").arg(value, width, 10, QLatin1Char('0'));
     }
 
     error = QStringLiteral("Unknown or malformed naming token {%1}.").arg(token);
@@ -45,7 +46,7 @@ QString RenderToken(const QString& token, const NamingTemplateContext& context, 
 
 QString NamingTemplate::DefaultPattern()
 {
-    return QStringLiteral("{prefix}{original}");
+    return QStringLiteral("{prefix}{original}_{segment:02}");
 }
 
 QString NamingTemplate::Validate(const QString& pattern)

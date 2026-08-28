@@ -10,6 +10,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QSet>
 #include <QStandardPaths>
 
 using namespace std::chrono_literals;
@@ -59,6 +60,7 @@ QJsonObject ClipToJson(const Clip& clip, const QDir& sessionDirectory)
     json.insert(QStringLiteral("sourcePathKind"), QDir::isAbsolutePath(StoredSourcePath(clip.SourcePath, sessionDirectory))
                                                      ? QStringLiteral("absolute") : QStringLiteral("relative"));
     json.insert(QStringLiteral("originalFileName"), clip.OriginalFileName);
+    json.insert(QStringLiteral("thumbnailSourceFingerprint"), clip.ThumbnailSourceFingerprint);
     QJsonArray segments;
     for (const Segment& segment : clip.Segments) segments.append(SegmentToJson(segment));
     json.insert(QStringLiteral("segments"), segments);
@@ -100,6 +102,44 @@ std::optional<Segment> SegmentFromJson(const QJsonObject& json, QString& error)
     if (OutputProfiles::Find(segment.ExportProfileId) == nullptr) segment.ExportProfileId = QStringLiteral("fast-copy");
     return segment;
 }
+
+QJsonObject MigratedSingleSegment(const QJsonObject& clipJson)
+{
+    QJsonObject segment = clipJson.value(QStringLiteral("segment")).toObject();
+    QJsonObject range = segment.value(QStringLiteral("range")).toObject();
+    if (range.isEmpty()) range = clipJson.value(QStringLiteral("range")).toObject();
+    if (!segment.contains(QStringLiteral("id")))
+        segment.insert(QStringLiteral("id"), clipJson.value(QStringLiteral("segmentId")));
+    if (!segment.contains(QStringLiteral("startMs")))
+        segment.insert(QStringLiteral("startMs"), range.contains(QStringLiteral("startMs"))
+            ? range.value(QStringLiteral("startMs"))
+            : range.contains(QStringLiteral("start")) ? range.value(QStringLiteral("start"))
+            : clipJson.contains(QStringLiteral("trimStartMs")) ? clipJson.value(QStringLiteral("trimStartMs"))
+            : clipJson.value(QStringLiteral("startMs")));
+    if (!segment.contains(QStringLiteral("endMs")))
+        segment.insert(QStringLiteral("endMs"), range.contains(QStringLiteral("endMs"))
+            ? range.value(QStringLiteral("endMs"))
+            : range.contains(QStringLiteral("end")) ? range.value(QStringLiteral("end"))
+            : clipJson.contains(QStringLiteral("trimEndMs")) ? clipJson.value(QStringLiteral("trimEndMs"))
+            : clipJson.value(QStringLiteral("endMs")));
+    if (!segment.contains(QStringLiteral("trimRangeUserEdited")))
+        segment.insert(QStringLiteral("trimRangeUserEdited"), true);
+    for (const QString& key : {QStringLiteral("outputBaseName"), QStringLiteral("outputExtension"),
+                               QStringLiteral("prefix"), QStringLiteral("namingTemplate"),
+                               QStringLiteral("skipped"), QStringLiteral("outputProfile")})
+        if (!segment.contains(key)) segment.insert(key, clipJson.value(key));
+    if (segment.value(QStringLiteral("outputBaseName")).toString().isEmpty())
+    {
+        const QFileInfo outputName(clipJson.value(QStringLiteral("outputName")).toString());
+        if (!outputName.fileName().isEmpty())
+        {
+            segment.insert(QStringLiteral("outputBaseName"), outputName.completeBaseName());
+            if (segment.value(QStringLiteral("outputExtension")).toString().isEmpty() && !outputName.suffix().isEmpty())
+                segment.insert(QStringLiteral("outputExtension"), QStringLiteral(".") + outputName.suffix());
+        }
+    }
+    return segment;
+}
 } // namespace
 
 QString SessionRepository::DefaultRecoveryPath()
@@ -123,6 +163,8 @@ bool SessionRepository::Save(const QString& filePath, const SessionData& session
     root.insert(QStringLiteral("recovery"), recoveryFile);
     root.insert(QStringLiteral("explicitSessionPath"), session.ExplicitSessionPath);
     root.insert(QStringLiteral("explicitSaveTimeUtc"), session.ExplicitSaveTimeUtc.toString(Qt::ISODateWithMs));
+    root.insert(QStringLiteral("activeClipId"), session.ActiveClipId.toString(QUuid::WithoutBraces));
+    root.insert(QStringLiteral("activeSegmentId"), session.ActiveSegmentId.toString(QUuid::WithoutBraces));
     QJsonObject workflow;
     workflow.insert(QStringLiteral("destinationMode"), session.Destination.Mode == EOutputDestinationMode::FixedDirectory
                                                            ? QStringLiteral("fixed") : QStringLiteral("source-relative"));
@@ -177,10 +219,12 @@ SessionLoadResult SessionRepository::Load(const QString& filePath)
         result.Error = QStringLiteral("Unsupported or missing session schema version.");
         return result;
     }
-    result.Session.SchemaVersion = version;
+    result.Session.SchemaVersion = SessionData::CurrentSchemaVersion;
     result.Session.SavedAtUtc = QDateTime::fromString(root.value(QStringLiteral("savedAtUtc")).toString(), Qt::ISODateWithMs);
     result.Session.ExplicitSessionPath = root.value(QStringLiteral("explicitSessionPath")).toString();
     result.Session.ExplicitSaveTimeUtc = QDateTime::fromString(root.value(QStringLiteral("explicitSaveTimeUtc")).toString(), Qt::ISODateWithMs);
+    result.Session.ActiveClipId = QUuid(root.value(QStringLiteral("activeClipId")).toString());
+    result.Session.ActiveSegmentId = QUuid(root.value(QStringLiteral("activeSegmentId")).toString());
     const QJsonObject workflow = root.value(QStringLiteral("workflow")).toObject();
     result.Session.Destination.Mode = workflow.value(QStringLiteral("destinationMode")).toString() == QStringLiteral("fixed")
                                               ? EOutputDestinationMode::FixedDirectory : EOutputDestinationMode::SourceRelative;
@@ -198,6 +242,8 @@ SessionLoadResult SessionRepository::Load(const QString& filePath)
         result.Session.SelectedNamingTemplate = NamingTemplate::DefaultPattern();
 
     const QDir sessionDirectory = QFileInfo(filePath).dir();
+    QSet<QUuid> seenClipIds;
+    QSet<QUuid> seenSegmentIds;
     for (const QJsonValue& clipValue : root.value(QStringLiteral("clips")).toArray())
     {
         if (!clipValue.isObject()) continue;
@@ -208,8 +254,15 @@ SessionLoadResult SessionRepository::Load(const QString& filePath)
             result.Error = QStringLiteral("Session contains an invalid clip ID.");
             return result;
         }
+        if (seenClipIds.contains(clip.Id))
+        {
+            result.Error = QStringLiteral("Session contains a duplicate clip ID.");
+            return result;
+        }
+        seenClipIds.insert(clip.Id);
         clip.SourcePath = ResolvedSourcePath(clipJson.value(QStringLiteral("sourcePath")).toString(), sessionDirectory);
         clip.OriginalFileName = clipJson.value(QStringLiteral("originalFileName")).toString(QFileInfo(clip.SourcePath).fileName());
+        clip.ThumbnailSourceFingerprint = clipJson.value(QStringLiteral("thumbnailSourceFingerprint")).toString();
         clip.MediaInformation.ProbeStatus = QFileInfo::exists(clip.SourcePath) ? EProbeStatus::Probing : EProbeStatus::Failed;
         if (!QFileInfo::exists(clip.SourcePath))
         {
@@ -217,7 +270,27 @@ SessionLoadResult SessionRepository::Load(const QString& filePath)
             result.Session.MissingSourcePaths.append(clip.SourcePath);
             result.Warnings.append(QStringLiteral("Missing source: %1").arg(clip.SourcePath));
         }
-        for (const QJsonValue& segmentValue : clipJson.value(QStringLiteral("segments")).toArray())
+        QJsonArray segmentValues = clipJson.value(QStringLiteral("segments")).toArray();
+        if (version == 1 && segmentValues.isEmpty() &&
+            (clipJson.value(QStringLiteral("segment")).isObject() || clipJson.contains(QStringLiteral("range")) ||
+             clipJson.contains(QStringLiteral("startMs")) || clipJson.contains(QStringLiteral("trimStartMs"))))
+        {
+            QJsonObject migrated = MigratedSingleSegment(clipJson);
+            if (QUuid(migrated.value(QStringLiteral("id")).toString()).isNull())
+                migrated.insert(QStringLiteral("id"), QUuid::createUuid().toString(QUuid::WithoutBraces));
+            if (migrated.value(QStringLiteral("outputBaseName")).toString().isEmpty())
+                migrated.insert(QStringLiteral("outputBaseName"), QFileInfo(clip.OriginalFileName).completeBaseName());
+            if (migrated.value(QStringLiteral("outputExtension")).toString().isEmpty())
+            {
+                const QString suffix = QFileInfo(clip.OriginalFileName).suffix();
+                migrated.insert(QStringLiteral("outputExtension"), suffix.isEmpty() ? QString() : QStringLiteral(".") + suffix);
+            }
+            if (migrated.value(QStringLiteral("outputProfile")).toString().isEmpty())
+                migrated.insert(QStringLiteral("outputProfile"), QStringLiteral("fast-copy"));
+            segmentValues.append(migrated);
+            result.Warnings.append(QStringLiteral("Migrated a version 1 single-segment clip to the version 2 segment collection."));
+        }
+        for (const QJsonValue& segmentValue : segmentValues)
         {
             if (!segmentValue.isObject()) continue;
             QString segmentError;
@@ -227,6 +300,12 @@ SessionLoadResult SessionRepository::Load(const QString& filePath)
                 result.Error = segmentError;
                 return result;
             }
+            if (seenSegmentIds.contains(segment->Id))
+            {
+                result.Error = QStringLiteral("Session contains a duplicate segment ID.");
+                return result;
+            }
+            seenSegmentIds.insert(segment->Id);
             clip.Segments.append(*segment);
         }
         if (!clip.Segments.isEmpty()) result.Session.Clips.push_back(std::move(clip));

@@ -6,6 +6,9 @@
 #include <QDir>
 #include <QSettings>
 
+#include <algorithm>
+#include <cmath>
+
 namespace ClipCutter
 {
 namespace Keys
@@ -25,6 +28,7 @@ constexpr auto Prefixes = "naming/savedPrefixes";
 constexpr auto Template = "naming/template";
 constexpr auto RecentSessions = "session/recentFiles";
 constexpr auto TimelineAutoPlay = "timeline/autoPlay";
+constexpr auto TimelineZoom = "timeline/zoomFactor";
 } // namespace Keys
 
 namespace
@@ -109,6 +113,9 @@ ApplicationSettings SettingsRepository::Load() const
     if (NamingTemplate::Validate(namingTemplate).isEmpty()) result.SelectedNamingTemplate = namingTemplate;
     result.RecentSessionFiles = CleanPaths(Settings_->value(Keys::RecentSessions).toStringList());
     result.TimelineAutoPlay = BoolValue(Settings_->value(Keys::TimelineAutoPlay), true);
+    bool zoomOk = false;
+    const double zoom = Settings_->value(Keys::TimelineZoom, 1.0).toDouble(&zoomOk);
+    result.TimelineZoomFactor = zoomOk && std::isfinite(zoom) ? std::clamp(zoom, 1.0, 1'000'000.0) : 1.0;
     return result;
 }
 
@@ -131,6 +138,7 @@ bool SettingsRepository::Save(const ApplicationSettings& settings, QString* erro
                                           ? settings.SelectedNamingTemplate : NamingTemplate::DefaultPattern());
     Settings_->setValue(Keys::RecentSessions, CleanPaths(settings.RecentSessionFiles));
     Settings_->setValue(Keys::TimelineAutoPlay, settings.TimelineAutoPlay);
+    Settings_->setValue(Keys::TimelineZoom, std::clamp(settings.TimelineZoomFactor, 1.0, 1'000'000.0));
     Settings_->sync();
     if (Settings_->status() == QSettings::NoError) return true;
     if (error != nullptr) *error = QStringLiteral("Unable to write application settings.");

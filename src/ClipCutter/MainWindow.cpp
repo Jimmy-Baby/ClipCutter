@@ -4,9 +4,11 @@
 #include "Utility.h"
 #include "Core/Export/OutputProfile.h"
 #include "Core/Naming/NamingTemplate.h"
+#include "App/Undo/SegmentCommands.h"
 #include "ui_MainWindow.h"
 
 #include <QAudioOutput>
+#include <QAction>
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QComboBox>
@@ -32,6 +34,7 @@
 #include <QSlider>
 #include <QTableView>
 #include <QTimer>
+#include <QUndoStack>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QUrl>
@@ -55,7 +58,8 @@ ClipCutter::MainWindow::MainWindow(QWidget* parent)
       PauseIcon_(QStringLiteral(":/icons/pause-solid.svg")), QueueModel_(new ClipQueueModel(this)),
       QueueProxy_(new ClipQueueFilterModel(this)),
       ExportController_(new ExportQueueController(this)), MediaProbe_(new MediaProbe(this)),
-      StartupDiagnostics_(new StartupDiagnostics(this)), AutosaveTimer_(new QTimer(this))
+      StartupDiagnostics_(new StartupDiagnostics(this)), AutosaveTimer_(new QTimer(this)),
+      UndoStack_(new QUndoStack(this)), ThumbnailProvider_(new FfmpegThumbnailProvider(this))
 {
     Ui_->setupUi(this);
     SetupWorkflowUi();
@@ -66,6 +70,24 @@ ClipCutter::MainWindow::MainWindow(QWidget* parent)
     Ui_->clipsTable->setAlternatingRowColors(true);
     Ui_->clipsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     Ui_->clipsTable->horizontalHeader()->setSectionResizeMode(ClipQueueModel::OutputNameColumn, QHeaderView::Stretch);
+    QueueModel_->SetEditInterceptor(
+        [this](const QModelIndex& index, const QVariant& value, const int role)
+        {
+            const QUuid id = QueueModel_->SegmentIdAtRow(index.row());
+            if (index.column() == ClipQueueModel::SkipColumn && role == Qt::CheckStateRole)
+            {
+                UndoStack_->push(new ChangeSkipStateCommand(QueueModel_, id, value.toInt() == Qt::Checked));
+                return true;
+            }
+            if (index.column() == ClipQueueModel::OutputNameColumn && role == Qt::EditRole)
+            {
+                const QFileInfo name(value.toString());
+                UndoStack_->push(new RenameSegmentCommand(QueueModel_, id,
+                    name.suffix().isEmpty() ? value.toString() : name.completeBaseName()));
+                return true;
+            }
+            return false;
+        });
 
     connect(Ui_->actionOpenFolder, &QAction::triggered, this, &ClipCutter::MainWindow::ActionOpenFolderTriggered);
     connect(Ui_->actionOpenFiles, &QAction::triggered, this, &ClipCutter::MainWindow::ActionOpenFilesTriggered);
@@ -101,7 +123,25 @@ ClipCutter::MainWindow::MainWindow(QWidget* parent)
     Player_->setAudioOutput(AudioOutput_);
     connect(Player_, &QMediaPlayer::durationChanged, this, &ClipCutter::MainWindow::OnPlayerDurationChanged);
     connect(Player_, &QMediaPlayer::positionChanged, this, &ClipCutter::MainWindow::OnPlayerPositionChanged);
-    connect(Ui_->timelineSlider, &QSlider::sliderMoved, Player_, &QMediaPlayer::setPosition);
+    connect(TimelineWidget_, &TimelineWidget::SeekRequested, Player_, &QMediaPlayer::setPosition);
+    connect(TimelineWidget_, &TimelineWidget::RangeEditPreview, this,
+            [this](const qint64 start, const qint64 end)
+            {
+                Ui_->startEndLabel->setText(QStringLiteral("Start: %1 / End: %2 / Duration: %3")
+                    .arg(Utility::GetTimeStringFromMilliseconds(start), Utility::GetTimeStringFromMilliseconds(end),
+                         Utility::GetTimeStringFromMilliseconds(end - start)));
+            });
+    connect(TimelineWidget_, &TimelineWidget::RangeEditCommitted, this,
+            [this](qint64, qint64, const qint64 start, const qint64 end, const TimelineWidget::EHandle handle)
+            {
+                if (CurrentSegment() == nullptr) return;
+                if (handle == TimelineWidget::EHandle::InMarker)
+                    UndoStack_->push(new MoveInMarkerCommand(QueueModel_, CurrentSegmentId_, std::chrono::milliseconds{start}));
+                else if (handle == TimelineWidget::EHandle::OutMarker)
+                    UndoStack_->push(new MoveOutMarkerCommand(QueueModel_, CurrentSegmentId_, std::chrono::milliseconds{end}));
+                RefreshTimeline();
+                UpdateStartEndUi();
+            });
     AudioOutput_->setVolume(1.0f);
     connect(Ui_->volumeSlider, &QSlider::sliderMoved, this, &ClipCutter::MainWindow::OnVolumeChanged);
     for (const OutputProfile& profile : OutputProfiles::BuiltIns())
@@ -115,8 +155,12 @@ ClipCutter::MainWindow::MainWindow(QWidget* parent)
             {
                 if (LoadingSession_) return;
                 if (QueueModel_->rowCount() > 0)
-                    QueueModel_->ApplyExportProfile(SelectedSegmentIds(), SelectedProfileId());
-                MarkSessionDirty();
+                {
+                    auto* command = new QUndoCommand(QStringLiteral("Change output profile"));
+                    for (const QUuid& id : SelectedSegmentIds())
+                        new ChangeOutputProfileCommand(QueueModel_, id, SelectedProfileId(), command);
+                    if (command->childCount() > 0) UndoStack_->push(command); else delete command;
+                }
                 UpdateOutputPreview();
                 UpdateActionStates();
             });
@@ -137,6 +181,14 @@ ClipCutter::MainWindow::MainWindow(QWidget* parent)
     AutosaveTimer_->setSingleShot(true);
     AutosaveTimer_->setInterval(1500);
     connect(AutosaveTimer_, &QTimer::timeout, this, &MainWindow::AutosaveSession);
+    connect(UndoStack_, &QUndoStack::cleanChanged, this,
+            [this](const bool clean)
+            {
+                if (LoadingSession_) return;
+                SessionState_.SetDirty(!clean);
+                UpdateSessionTitle();
+                if (!clean) AutosaveTimer_->start();
+            });
     connect(QueueModel_, &QAbstractItemModel::dataChanged, this,
             [this](const QModelIndex&, const QModelIndex&, const QList<int>& roles)
             {
@@ -226,7 +278,7 @@ void ClipCutter::MainWindow::ActionSkipTriggered()
 {
     if (!CurrentSegmentId_.isNull())
     {
-        QueueModel_->UpdateSkipState(CurrentSegmentId_, true);
+        UndoStack_->push(new ChangeSkipStateCommand(QueueModel_, CurrentSegmentId_, true));
         ActionNextTriggered();
         UpdateActionStates();
     }
@@ -262,11 +314,13 @@ void ClipCutter::MainWindow::ActionSetStartTriggered()
     const auto range =
         ClipCutter::TimeRange::Create(std::chrono::milliseconds{Player_->position()}, segment->Range.End(),
                                       clip->MediaInformation.Duration, true, &error);
-    if (!range.has_value() || !QueueModel_->UpdateTrimRange(CurrentSegmentId_, *range, &error))
+    if (!range.has_value())
     {
         QMessageBox::warning(this, QStringLiteral("ClipCutter"), error);
         return;
     }
+    UndoStack_->push(new MoveInMarkerCommand(QueueModel_, CurrentSegmentId_, range->Start()));
+    RefreshTimeline();
     UpdateStartEndUi();
 }
 
@@ -282,12 +336,165 @@ void ClipCutter::MainWindow::ActionSetEndTriggered()
     const auto range =
         ClipCutter::TimeRange::Create(segment->Range.Start(), std::chrono::milliseconds{Player_->position()},
                                       clip->MediaInformation.Duration, true, &error);
-    if (!range.has_value() || !QueueModel_->UpdateTrimRange(CurrentSegmentId_, *range, &error))
+    if (!range.has_value())
     {
         QMessageBox::warning(this, QStringLiteral("ClipCutter"), error);
         return;
     }
+    UndoStack_->push(new MoveOutMarkerCommand(QueueModel_, CurrentSegmentId_, range->End()));
+    RefreshTimeline();
     UpdateStartEndUi();
+}
+
+void ClipCutter::MainWindow::CreateSegmentFromCurrentRange()
+{
+    const Clip* clip = CurrentClip();
+    const Segment* current = CurrentSegment();
+    if (clip == nullptr || current == nullptr) return;
+    QString error;
+    const auto created = QueueModel_->CreateSegment(clip->Id, current->Range, NamingTemplateEdit_->text(),
+                                                     QDate::currentDate(), &error);
+    if (!created.has_value())
+    {
+        QMessageBox::warning(this, QStringLiteral("Create segment"), error);
+        return;
+    }
+    const Segment snapshot = *QueueModel_->FindSegment(*created);
+    const int index = QueueModel_->SegmentIndex(*created);
+    QueueModel_->RemoveSegment(*created);
+    UndoStack_->push(new AddSegmentCommand(QueueModel_, clip->Id, snapshot, index));
+    OpenVideo(QueueModel_->RowForSegment(snapshot.Id));
+}
+
+void ClipCutter::MainWindow::CreateSegmentAtCurrentPlayhead()
+{
+    const Clip* clip = CurrentClip();
+    if (clip == nullptr) return;
+    QString error;
+    const auto created = QueueModel_->CreateSegmentAtPlayhead(
+        clip->Id, std::chrono::milliseconds{Player_->position()}, NamingTemplateEdit_->text(), QDate::currentDate(), &error);
+    if (!created.has_value())
+    {
+        QMessageBox::warning(this, QStringLiteral("Create segment"), error);
+        return;
+    }
+    const Segment snapshot = *QueueModel_->FindSegment(*created);
+    const int index = QueueModel_->SegmentIndex(*created);
+    QueueModel_->RemoveSegment(*created);
+    UndoStack_->push(new AddSegmentCommand(QueueModel_, clip->Id, snapshot, index));
+    OpenVideo(QueueModel_->RowForSegment(snapshot.Id));
+}
+
+void ClipCutter::MainWindow::DuplicateCurrentSegment()
+{
+    if (CurrentSegment() == nullptr) return;
+    QString error;
+    const auto created = QueueModel_->DuplicateSegment(CurrentSegmentId_, NamingTemplateEdit_->text(),
+                                                        QDate::currentDate(), &error);
+    if (!created.has_value())
+    {
+        QMessageBox::warning(this, QStringLiteral("Duplicate segment"), error);
+        return;
+    }
+    const QUuid clipId = QueueModel_->ClipIdForSegment(*created);
+    const Segment snapshot = *QueueModel_->FindSegment(*created);
+    const int index = QueueModel_->SegmentIndex(*created);
+    QueueModel_->RemoveSegment(*created);
+    UndoStack_->push(new DuplicateSegmentCommand(QueueModel_, clipId, snapshot, index));
+    OpenVideo(QueueModel_->RowForSegment(snapshot.Id));
+}
+
+void ClipCutter::MainWindow::DeleteCurrentSegment()
+{
+    const int row = QueueModel_->RowForSegment(CurrentSegmentId_);
+    if (row < 0) return;
+    UndoStack_->push(new DeleteSegmentCommand(QueueModel_, CurrentSegmentId_));
+    if (QueueModel_->rowCount() == 0) ClearCurrentClipUi();
+    else OpenVideo(std::min(row, QueueModel_->rowCount() - 1));
+}
+
+void ClipCutter::MainWindow::MoveCurrentSegment(const int delta)
+{
+    const int source = QueueModel_->SegmentIndex(CurrentSegmentId_);
+    const Clip* clip = CurrentClip();
+    if (clip == nullptr) return;
+    const int destination = source + delta;
+    if (source < 0 || destination < 0 || destination >= clip->Segments.size()) return;
+    UndoStack_->push(new ReorderSegmentCommand(QueueModel_, CurrentSegmentId_, destination));
+    OpenVideo(QueueModel_->RowForSegment(CurrentSegmentId_));
+}
+
+void ClipCutter::MainWindow::ResetCurrentSegment()
+{
+    const Clip* clip = CurrentClip();
+    const Segment* segment = CurrentSegment();
+    if (clip == nullptr || segment == nullptr || !clip->MediaInformation.Duration.has_value()) return;
+    const auto range = TimeRange::Create(std::chrono::milliseconds{0}, *clip->MediaInformation.Duration);
+    if (range.has_value()) UndoStack_->push(new ReplaceRangeCommand(QueueModel_, segment->Id, *range));
+    RefreshTimeline();
+    UpdateStartEndUi();
+}
+
+void ClipCutter::MainWindow::NudgePlayhead(const qint64 deltaMs)
+{
+    const Clip* clip = CurrentClip();
+    if (clip == nullptr) return;
+    qint64 target = std::max<qint64>(0, Player_->position() + deltaMs);
+    if (clip->MediaInformation.Duration.has_value()) target = std::min(target, clip->MediaInformation.Duration->count());
+    Player_->setPosition(target);
+}
+
+void ClipCutter::MainWindow::NudgeMarker(const bool inMarker, const qint64 deltaMs)
+{
+    const Clip* clip = CurrentClip();
+    const Segment* segment = CurrentSegment();
+    if (clip == nullptr || segment == nullptr) return;
+    if (inMarker)
+    {
+        const qint64 target = std::clamp(segment->Range.Start().count() + deltaMs, qint64{0}, segment->Range.End().count());
+        if (target != segment->Range.Start().count())
+            UndoStack_->push(new MoveInMarkerCommand(QueueModel_, segment->Id, std::chrono::milliseconds{target}));
+    }
+    else
+    {
+        const qint64 maximum = clip->MediaInformation.Duration.value_or(segment->Range.End()).count();
+        const qint64 target = std::clamp(segment->Range.End().count() + deltaMs, segment->Range.Start().count(), maximum);
+        if (target != segment->Range.End().count())
+            UndoStack_->push(new MoveOutMarkerCommand(QueueModel_, segment->Id, std::chrono::milliseconds{target}));
+    }
+    RefreshTimeline();
+    UpdateStartEndUi();
+}
+
+void ClipCutter::MainWindow::StepFrame(const qint64 frameCount)
+{
+    const Clip* clip = CurrentClip();
+    if (clip == nullptr) return;
+    const FrameStepResult step = FrameStepper::Step(clip->MediaInformation,
+                                                     std::chrono::milliseconds{Player_->position()}, frameCount,
+                                                     clip->MediaInformation.Duration);
+    Player_->setPosition(step.Position.count());
+    statusBar()->showMessage(step.Description, 3500);
+}
+
+void ClipCutter::MainWindow::SetLoopSelectionEnabled(const bool enabled)
+{
+    const Segment* segment = CurrentSegment();
+    LoopController_.SetRange(segment == nullptr ? std::optional<TimeRange>{} : std::optional<TimeRange>{segment->Range});
+    LoopController_.SetEnabled(enabled);
+    if (!LoopController_.IsLoopable())
+    {
+        if (enabled)
+        {
+            statusBar()->showMessage(QStringLiteral("Looping requires a non-empty valid segment range."), 4000);
+            LoopController_.SetEnabled(false);
+            const QSignalBlocker blocker(LoopSelectionAction_);
+            LoopSelectionAction_->setChecked(false);
+        }
+        return;
+    }
+    Player_->setPosition(segment->Range.Start().count());
+    Player_->play();
 }
 
 void ClipCutter::MainWindow::OnVolumeChanged(int volume)
@@ -297,14 +504,22 @@ void ClipCutter::MainWindow::OnVolumeChanged(int volume)
 
 void ClipCutter::MainWindow::OnPlayerDurationChanged(qint64 duration)
 {
-    Ui_->timelineSlider->setMaximum(
-        static_cast<int>(qBound<qint64>(qint64{0}, duration, qint64{std::numeric_limits<int>::max()})));
+    const Clip* clip = CurrentClip();
+    TimelineWidget_->SetDuration(clip != nullptr && clip->MediaInformation.Duration.has_value()
+                                     ? clip->MediaInformation.Duration
+                                     : (duration > 0 ? std::optional<std::chrono::milliseconds>{std::chrono::milliseconds{duration}}
+                                                     : std::nullopt));
 }
 
 void ClipCutter::MainWindow::OnPlayerPositionChanged(qint64 position)
 {
-    Ui_->timelineSlider->setValue(
-        static_cast<int>(qBound<qint64>(qint64{0}, position, qint64{std::numeric_limits<int>::max()})));
+    if (const auto loopSeek = LoopController_.Evaluate(std::chrono::milliseconds{position}); loopSeek.has_value())
+    {
+        Player_->setPosition(loopSeek->count());
+        TimelineWidget_->SetPlayhead(*loopSeek);
+        return;
+    }
+    TimelineWidget_->SetPlayhead(std::chrono::milliseconds{position});
     Ui_->timelineLabel->setText(Utility::GetTimeStringFromMilliseconds(position));
 }
 
@@ -322,8 +537,9 @@ void ClipCutter::MainWindow::OnVideoNameChanged(const QString& newName)
 {
     if (!CurrentSegmentId_.isNull())
     {
-        QueueModel_->UpdateOutputBaseName(CurrentSegmentId_, newName);
-        if (Segment* segment = QueueModel_->FindSegment(CurrentSegmentId_)) segment->NamingTemplatePattern.reset();
+        const Segment* current = CurrentSegment();
+        if (current != nullptr && current->OutputBaseName != newName)
+            UndoStack_->push(new RenameSegmentCommand(QueueModel_, CurrentSegmentId_, newName));
         UpdateOutputPreview();
     }
 }
@@ -393,9 +609,10 @@ void ClipCutter::MainWindow::UpdateStartEndUi()
         Ui_->startEndLabel->setText(QStringLiteral("Start: 00:00:00.000 / End: 00:00:00.000"));
         return;
     }
-    Ui_->startEndLabel->setText(QStringLiteral("Start: %1 / End: %2")
+    Ui_->startEndLabel->setText(QStringLiteral("Start: %1 / End: %2 / Duration: %3")
                                     .arg(Utility::GetTimeStringFromMilliseconds(segment->Range.Start().count()),
-                                         Utility::GetTimeStringFromMilliseconds(segment->Range.End().count())));
+                                         Utility::GetTimeStringFromMilliseconds(segment->Range.End().count()),
+                                         Utility::GetTimeStringFromMilliseconds(segment->Range.Duration().count())));
 }
 
 void ClipCutter::MainWindow::UpdateKeywordUi()
@@ -486,6 +703,48 @@ void ClipCutter::MainWindow::UpdateActionStates()
     Ui_->checkboxCopyMetadata->setEnabled(!exportActive);
 }
 
+void ClipCutter::MainWindow::RefreshTimeline()
+{
+    const Clip* clip = CurrentClip();
+    const Segment* segment = CurrentSegment();
+    if (clip == nullptr || segment == nullptr)
+    {
+        TimelineWidget_->SetSourcePath({});
+        TimelineWidget_->SetDuration(std::nullopt);
+        TimelineWidget_->SetActiveRange(std::nullopt);
+        return;
+    }
+    TimelineWidget_->SetSourcePath(clip->SourcePath);
+    TimelineWidget_->SetDuration(clip->MediaInformation.Duration);
+    TimelineWidget_->SetActiveRange(segment->Range);
+    TimelineWidget_->SetPlayhead(std::chrono::milliseconds{Player_->position()});
+    QVector<TimeRange> otherRanges;
+    for (const Segment& other : clip->Segments)
+        if (other.Id != segment->Id) otherRanges.append(other.Range);
+    TimelineWidget_->SetOtherSegmentRanges(std::move(otherRanges));
+    const int segmentNumber = QueueModel_->SegmentIndex(segment->Id) + 1;
+    SourceLabel_->setText(QStringLiteral("Source: %1").arg(clip->SourcePath));
+    SourceLabel_->setToolTip(clip->SourcePath);
+    ActiveSegmentLabel_->setText(QStringLiteral("Active segment: %1/%2 — %3 — %4")
+                                     .arg(segmentNumber).arg(clip->Segments.size())
+                                     .arg(segment->Skipped ? QStringLiteral("SKIP") : QStringLiteral("EXPORT"),
+                                          segment->OutputFileName()));
+    LoopController_.SetRange(segment->Range);
+    if (LoopController_.IsEnabled() && !LoopController_.IsLoopable())
+    {
+        LoopController_.SetEnabled(false);
+        const QSignalBlocker blocker(LoopSelectionAction_);
+        LoopSelectionAction_->setChecked(false);
+    }
+}
+
+void ClipCutter::MainWindow::UpdateSessionTitle()
+{
+    const QString name = SessionState_.FilePath().isEmpty() ? QStringLiteral("Untitled")
+                                                            : QFileInfo(SessionState_.FilePath()).fileName();
+    setWindowTitle(QStringLiteral("ClipCutter — %1%2").arg(name, SessionState_.IsDirty() ? QStringLiteral(" *") : QString()));
+}
+
 void ClipCutter::MainWindow::ClearCurrentClipUi()
 {
     CurrentClipId_ = {};
@@ -493,7 +752,19 @@ void ClipCutter::MainWindow::ClearCurrentClipUi()
     Player_->stop();
     Player_->setSource(QUrl());
     Ui_->actionPlayPause->setIcon(PlayIcon_);
-    Ui_->timelineSlider->setRange(0, 0);
+    TimelineWidget_->SetSourcePath({});
+    TimelineWidget_->SetDuration(std::nullopt);
+    TimelineWidget_->SetActiveRange(std::nullopt);
+    TimelineWidget_->SetOtherSegmentRanges({});
+    LoopController_.SetEnabled(false);
+    LoopController_.SetRange(std::nullopt);
+    if (LoopSelectionAction_ != nullptr)
+    {
+        const QSignalBlocker blocker(LoopSelectionAction_);
+        LoopSelectionAction_->setChecked(false);
+    }
+    SourceLabel_->setText(QStringLiteral("Source: —"));
+    ActiveSegmentLabel_->setText(QStringLiteral("Active segment: —"));
     Ui_->timelineLabel->setText(QStringLiteral("00:00:00.000"));
     UpdateCurrentVideoName();
     UpdateStartEndUi();
@@ -580,6 +851,7 @@ void ClipCutter::MainWindow::OpenVideo(int row)
     Ui_->actionPlayPause->setIcon(PlayIcon_);
     Player_->setSource(QUrl::fromLocalFile(clip->SourcePath));
     Player_->pause();
+    Player_->setPosition(QueueModel_->FindSegment(segmentId)->Range.Start().count());
     {
         const QSignalBlocker blocker(Ui_->clipsTable->selectionModel());
         const QModelIndex proxyIndex = QueueProxy_->mapFromSource(
@@ -593,6 +865,7 @@ void ClipCutter::MainWindow::OpenVideo(int row)
     UpdateKeywordUi();
     UpdateActionStates();
     UpdateOutputPreview();
+    RefreshTimeline();
     Ui_->actionPlayPause->setIcon(PauseIcon_);
     Player_->play();
 }
@@ -788,7 +1061,7 @@ void ClipCutter::MainWindow::ShowSelectedExportLog()
 
 void ClipCutter::MainWindow::MarkAllAsSkipped()
 {
-    QueueModel_->UpdateAllSkipStates(true);
+    UndoStack_->push(new BatchSkipStateCommand(QueueModel_, {}, true));
 }
 
 void ClipCutter::MainWindow::AddKeyword()
@@ -841,11 +1114,11 @@ void ClipCutter::MainWindow::UseKeyword()
     const QString keyword = selected.constFirst()->text(KKeywordTextColumn);
     if (segment->Prefix.has_value() && ClipLogic::KeywordsEqual(*segment->Prefix, keyword))
     {
-        QueueModel_->ClearPrefix(segment->Id);
+        UndoStack_->push(new ChangePrefixCommand(QueueModel_, segment->Id, std::nullopt));
     }
     else
     {
-        QueueModel_->ApplyPrefix(segment->Id, keyword);
+        UndoStack_->push(new ChangePrefixCommand(QueueModel_, segment->Id, keyword));
     }
     UpdateKeywordUi();
     UpdateActionStates();
@@ -916,12 +1189,12 @@ ClipCutter::ECollisionPolicy ClipCutter::MainWindow::SelectedCollisionPolicy() c
 void ClipCutter::MainWindow::OnProbeCompleted(const MediaProbeResult& result)
 {
     if (!QueueModel_->UpdateMediaInfo(result.ClipId, result.SourcePath, result.Info)) return;
+    if (Clip* clip = QueueModel_->FindClip(result.ClipId))
+        clip->ThumbnailSourceFingerprint = FfmpegThumbnailProvider::BuildSourceFingerprint(result.SourcePath);
     if (result.ClipId == CurrentClipId_)
     {
         UpdateStartEndUi();
-        if (result.Info.Duration.has_value())
-            Ui_->timelineSlider->setMaximum(static_cast<int>(qMin<qint64>(result.Info.Duration->count(),
-                                                                         std::numeric_limits<int>::max())));
+        RefreshTimeline();
     }
     UpdateActionStates();
 }
@@ -982,6 +1255,20 @@ void ClipCutter::MainWindow::SetupWorkflowUi()
     Ui_->playerBox->setMinimumSize(300, 180);
     Ui_->qualityCombo->setMinimumWidth(120);
     Ui_->qualityCombo->setMaximumWidth(QWIDGETSIZE_MAX);
+    Ui_->timelineBox->setMaximumHeight(QWIDGETSIZE_MAX);
+    Ui_->timelineBox->setMinimumHeight(156);
+    Ui_->timelineSlider->hide();
+    TimelineWidget_ = new TimelineWidget(Ui_->timelineBox);
+    TimelineWidget_->SetThumbnailProvider(ThumbnailProvider_);
+    SourceLabel_ = new QLabel(QStringLiteral("Source: —"), Ui_->timelineBox);
+    ActiveSegmentLabel_ = new QLabel(QStringLiteral("Active segment: —"), Ui_->timelineBox);
+    SourceLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    ActiveSegmentLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    Ui_->gridLayout_6->addWidget(SourceLabel_, 0, 0, 1, 2);
+    Ui_->gridLayout_6->addWidget(ActiveSegmentLabel_, 0, 2);
+    Ui_->gridLayout_6->addWidget(TimelineWidget_, 1, 0, 1, 3);
+    Ui_->gridLayout_6->addWidget(Ui_->timelineLabel, 2, 0);
+    Ui_->gridLayout_6->addWidget(Ui_->startEndLabel, 2, 1, 1, 2);
 
     Ui_->gridLayout->removeWidget(Ui_->playerBox);
     Ui_->gridLayout->removeWidget(Ui_->timelineBox);
@@ -1096,48 +1383,178 @@ void ClipCutter::MainWindow::SetupWorkflowUi()
     connect(resetSettingsAction, &QAction::triggered, this, &MainWindow::ResetSettings);
     connect(relinkAction, &QAction::triggered, this, &MainWindow::RelinkMissingSources);
 
+    QMenu* editMenu = menuBar()->addMenu(QStringLiteral("Edit"));
+    QAction* undoAction = UndoStack_->createUndoAction(this, QStringLiteral("Undo"));
+    QAction* redoAction = UndoStack_->createRedoAction(this, QStringLiteral("Redo"));
+    undoAction->setShortcut(QKeySequence::Undo);
+    redoAction->setShortcut(QKeySequence::Redo);
+    editMenu->addAction(undoAction);
+    editMenu->addAction(redoAction);
+
+    QMenu* segmentMenu = menuBar()->addMenu(QStringLiteral("Segments"));
+    segmentMenu->addAction(QStringLiteral("Create from active range"), QKeySequence(QStringLiteral("Ctrl+Shift+N")),
+                           this, &MainWindow::CreateSegmentFromCurrentRange);
+    segmentMenu->addAction(QStringLiteral("Create from playhead to source end"), QKeySequence(QStringLiteral("Ctrl+Alt+N")),
+                           this, &MainWindow::CreateSegmentAtCurrentPlayhead);
+    segmentMenu->addAction(QStringLiteral("Duplicate active segment"), QKeySequence(QStringLiteral("Ctrl+D")),
+                           this, &MainWindow::DuplicateCurrentSegment);
+    segmentMenu->addAction(QStringLiteral("Delete active segment"), QKeySequence::Delete,
+                           this, &MainWindow::DeleteCurrentSegment);
+    segmentMenu->addSeparator();
+    segmentMenu->addAction(QStringLiteral("Move segment up"), QKeySequence(QStringLiteral("Ctrl+Up")),
+                           this, [this] { MoveCurrentSegment(-1); });
+    segmentMenu->addAction(QStringLiteral("Move segment down"), QKeySequence(QStringLiteral("Ctrl+Down")),
+                           this, [this] { MoveCurrentSegment(1); });
+    segmentMenu->addAction(QStringLiteral("Reset segment to full source"), this, &MainWindow::ResetCurrentSegment);
+    segmentMenu->addSeparator();
+    segmentMenu->addAction(QStringLiteral("Previous segment"), QKeySequence(QStringLiteral("Alt+PageUp")),
+                           this, &MainWindow::ActionPrevTriggered);
+    segmentMenu->addAction(QStringLiteral("Next segment"), QKeySequence(QStringLiteral("Alt+PageDown")),
+                           this, &MainWindow::ActionNextTriggered);
+
+    QMenu* timelineMenu = menuBar()->addMenu(QStringLiteral("Timeline"));
+    timelineMenu->addAction(QStringLiteral("Zoom in"), QKeySequence(QStringLiteral("Ctrl++")),
+                            TimelineWidget_, &TimelineWidget::ZoomIn);
+    timelineMenu->addAction(QStringLiteral("Zoom out"), QKeySequence(QStringLiteral("Ctrl+-")),
+                            TimelineWidget_, &TimelineWidget::ZoomOut);
+    timelineMenu->addAction(QStringLiteral("Zoom to selection"), QKeySequence(QStringLiteral("Ctrl+0")),
+                            TimelineWidget_, &TimelineWidget::ZoomToSelection);
+    timelineMenu->addAction(QStringLiteral("Zoom to full duration"), QKeySequence(QStringLiteral("Ctrl+Shift+0")),
+                            TimelineWidget_, &TimelineWidget::ZoomToFull);
+    timelineMenu->addSeparator();
+    timelineMenu->addAction(QStringLiteral("Jump to in marker"), QKeySequence(QStringLiteral("I")),
+                            TimelineWidget_, &TimelineWidget::JumpToIn);
+    timelineMenu->addAction(QStringLiteral("Jump to out marker"), QKeySequence(QStringLiteral("O")),
+                            TimelineWidget_, &TimelineWidget::JumpToOut);
+    LoopSelectionAction_ = timelineMenu->addAction(QStringLiteral("Loop selected range"));
+    LoopSelectionAction_->setCheckable(true);
+    LoopSelectionAction_->setShortcut(QKeySequence(QStringLiteral("L")));
+    connect(LoopSelectionAction_, &QAction::toggled, this, &MainWindow::SetLoopSelectionEnabled);
+    timelineMenu->addSeparator();
+    timelineMenu->addAction(QStringLiteral("Step one frame backward"), QKeySequence(QStringLiteral("[")),
+                            this, [this] { StepFrame(-1); });
+    timelineMenu->addAction(QStringLiteral("Step one frame forward"), QKeySequence(QStringLiteral("]")),
+                            this, [this] { StepFrame(1); });
+    QMenu* playheadNudge = timelineMenu->addMenu(QStringLiteral("Nudge playhead"));
+    for (const qint64 interval : {qint64{10}, qint64{100}, qint64{1000}})
+    {
+        playheadNudge->addAction(QStringLiteral("-%1 ms").arg(interval), this, [this, interval] { NudgePlayhead(-interval); });
+        playheadNudge->addAction(QStringLiteral("+%1 ms").arg(interval), this, [this, interval] { NudgePlayhead(interval); });
+    }
+    QMenu* inNudge = timelineMenu->addMenu(QStringLiteral("Nudge in marker"));
+    QMenu* outNudge = timelineMenu->addMenu(QStringLiteral("Nudge out marker"));
+    for (const qint64 interval : {qint64{10}, qint64{100}, qint64{1000}})
+    {
+        inNudge->addAction(QStringLiteral("-%1 ms").arg(interval), this, [this, interval] { NudgeMarker(true, -interval); });
+        inNudge->addAction(QStringLiteral("+%1 ms").arg(interval), this, [this, interval] { NudgeMarker(true, interval); });
+        outNudge->addAction(QStringLiteral("-%1 ms").arg(interval), this, [this, interval] { NudgeMarker(false, -interval); });
+        outNudge->addAction(QStringLiteral("+%1 ms").arg(interval), this, [this, interval] { NudgeMarker(false, interval); });
+    }
+    timelineMenu->addSeparator();
+    timelineMenu->addAction(QStringLiteral("Clear thumbnail cache"), this,
+                            [this]
+                            {
+                                QString error;
+                                if (!ThumbnailProvider_->ClearCache(&error)) statusBar()->showMessage(error, 6000);
+                                else statusBar()->showMessage(QStringLiteral("Timeline thumbnail cache cleared."), 3000);
+                            });
+
     QMenu* batchMenu = menuBar()->addMenu(QStringLiteral("Batch"));
+    const auto allSegmentIds = [this]
+    {
+        QSet<QUuid> result;
+        for (int row = 0; row < QueueModel_->rowCount(); ++row) result.insert(QueueModel_->SegmentIdAtRow(row));
+        return result;
+    };
+    const auto pushInvert = [this, allSegmentIds](QSet<QUuid> ids)
+    {
+        if (ids.isEmpty()) ids = allSegmentIds();
+        auto* command = new QUndoCommand(QStringLiteral("Invert segment keep state"));
+        for (const QUuid& id : ids)
+            if (const Segment* segment = QueueModel_->FindSegment(id))
+                new ChangeSkipStateCommand(QueueModel_, id, !segment->Skipped, command);
+        if (command->childCount() > 0) UndoStack_->push(command); else delete command;
+    };
+    const auto pushPrefix = [this, allSegmentIds](QSet<QUuid> ids, std::optional<QString> prefix)
+    {
+        if (ids.isEmpty()) ids = allSegmentIds();
+        auto* command = new QUndoCommand(QStringLiteral("Change segment prefixes"));
+        for (const QUuid& id : ids) new ChangePrefixCommand(QueueModel_, id, prefix, command);
+        if (command->childCount() > 0) UndoStack_->push(command); else delete command;
+    };
+    const auto pushProfile = [this, allSegmentIds](QSet<QUuid> ids)
+    {
+        if (ids.isEmpty()) ids = allSegmentIds();
+        auto* command = new QUndoCommand(QStringLiteral("Change segment output profiles"));
+        for (const QUuid& id : ids) new ChangeOutputProfileCommand(QueueModel_, id, SelectedProfileId(), command);
+        if (command->childCount() > 0) UndoStack_->push(command); else delete command;
+    };
+    const auto pushReset = [this, allSegmentIds](QSet<QUuid> ids)
+    {
+        if (ids.isEmpty()) ids = allSegmentIds();
+        auto* command = new QUndoCommand(QStringLiteral("Reset segment ranges"));
+        for (const QUuid& id : ids)
+        {
+            const Clip* clip = QueueModel_->FindClip(QueueModel_->ClipIdForSegment(id));
+            if (clip != nullptr && clip->MediaInformation.Duration.has_value())
+                new ReplaceRangeCommand(QueueModel_, id,
+                    *TimeRange::Create(std::chrono::milliseconds{0}, *clip->MediaInformation.Duration), command);
+        }
+        if (command->childCount() > 0) UndoStack_->push(command); else delete command;
+        RefreshTimeline();
+    };
+    const auto pushDelete = [this](const QSet<QUuid>& ids)
+    {
+        auto* command = new QUndoCommand(QStringLiteral("Delete segments"));
+        for (const QUuid& id : ids) new DeleteSegmentCommand(QueueModel_, id, command);
+        if (command->childCount() > 0) UndoStack_->push(command); else delete command;
+        if (QueueModel_->rowCount() == 0) ClearCurrentClipUi();
+        else if (QueueModel_->FindSegment(CurrentSegmentId_) == nullptr) OpenVideo(0);
+    };
     batchMenu->addAction(QStringLiteral("Keep selected"), this,
-        [this] { QueueModel_->UpdateSkipStates(SelectedSegmentIds(), false); });
+        [this] { UndoStack_->push(new BatchSkipStateCommand(QueueModel_, SelectedSegmentIds(), false)); });
     batchMenu->addAction(QStringLiteral("Skip selected"), this,
-        [this] { QueueModel_->UpdateSkipStates(SelectedSegmentIds(), true); });
+        [this] { UndoStack_->push(new BatchSkipStateCommand(QueueModel_, SelectedSegmentIds(), true)); });
     batchMenu->addAction(QStringLiteral("Invert selected keep/skip"), this,
-        [this] { QueueModel_->InvertSkipStates(SelectedSegmentIds()); });
-    batchMenu->addAction(QStringLiteral("Keep all"), this, [this] { QueueModel_->UpdateAllSkipStates(false); });
-    batchMenu->addAction(QStringLiteral("Skip all"), this, [this] { QueueModel_->UpdateAllSkipStates(true); });
-    batchMenu->addAction(QStringLiteral("Invert keep/skip"), this, [this] { QueueModel_->InvertSkipStates(); });
+        [this, pushInvert] { pushInvert(SelectedSegmentIds()); });
+    batchMenu->addAction(QStringLiteral("Keep all"), this,
+        [this] { UndoStack_->push(new BatchSkipStateCommand(QueueModel_, {}, false)); });
+    batchMenu->addAction(QStringLiteral("Skip all"), this,
+        [this] { UndoStack_->push(new BatchSkipStateCommand(QueueModel_, {}, true)); });
+    batchMenu->addAction(QStringLiteral("Invert keep/skip"), this, [pushInvert] { pushInvert({}); });
     batchMenu->addSeparator();
     batchMenu->addAction(QStringLiteral("Apply prefix to selected"), this,
-        [this] { QueueModel_->ApplyPrefixTo(SelectedSegmentIds(), Ui_->keywordEdit->text()); });
+        [this, pushPrefix] { pushPrefix(SelectedSegmentIds(), Ui_->keywordEdit->text()); });
     batchMenu->addAction(QStringLiteral("Apply prefix to all"), this,
-        [this] { QueueModel_->ApplyPrefixTo({}, Ui_->keywordEdit->text()); });
+        [this, pushPrefix] { pushPrefix({}, Ui_->keywordEdit->text()); });
     batchMenu->addAction(QStringLiteral("Clear prefix from selected"), this,
-        [this] { QueueModel_->ClearPrefixes(SelectedSegmentIds()); });
+        [this, pushPrefix] { pushPrefix(SelectedSegmentIds(), std::nullopt); });
     batchMenu->addAction(QStringLiteral("Clear prefix from all"), this,
-        [this] { QueueModel_->ClearPrefixes(); });
+        [pushPrefix] { pushPrefix({}, std::nullopt); });
     batchMenu->addAction(QStringLiteral("Apply naming template to selected"), this,
         [this] { ApplyNamingTemplateTo(SelectedSegmentIds()); });
     batchMenu->addAction(QStringLiteral("Apply naming template to all"), this,
         [this] { ApplyNamingTemplateTo({}); });
     batchMenu->addAction(QStringLiteral("Apply output profile to selected"), this,
-        [this] { QueueModel_->ApplyExportProfile(SelectedSegmentIds(), SelectedProfileId()); });
+        [this, pushProfile] { pushProfile(SelectedSegmentIds()); });
     batchMenu->addAction(QStringLiteral("Apply output profile to all"), this,
-        [this] { QueueModel_->ApplyExportProfile({}, SelectedProfileId()); });
+        [pushProfile] { pushProfile({}); });
     batchMenu->addAction(QStringLiteral("Reset selected trim range"), this,
-        [this] { QueueModel_->ResetTrimRanges(SelectedSegmentIds()); });
+        [this, pushReset] { pushReset(SelectedSegmentIds()); });
     batchMenu->addAction(QStringLiteral("Reset all trim ranges"), this,
-        [this] { QueueModel_->ResetTrimRanges(); });
+        [pushReset] { pushReset({}); });
     batchMenu->addAction(QStringLiteral("Remove selected entries"), this,
-        [this] { QueueModel_->RemoveEntries(SelectedSegmentIds()); });
+        [this, pushDelete] { pushDelete(SelectedSegmentIds()); });
     batchMenu->addSeparator();
     batchMenu->addAction(QStringLiteral("Clear queue"), this,
-        [this]
+        [this, pushDelete]
         {
             if (QueueModel_->rowCount() > 0 && QMessageBox::question(this, QStringLiteral("Clear queue"),
                     QStringLiteral("Remove all entries from the queue?")) == QMessageBox::Yes)
             {
-                ClearCurrentClipUi();
-                QueueModel_->ClearClips();
+                QSet<QUuid> ids;
+                for (int row = 0; row < QueueModel_->rowCount(); ++row) ids.insert(QueueModel_->SegmentIdAtRow(row));
+                pushDelete(ids);
             }
         });
 }
@@ -1166,6 +1583,7 @@ void ClipCutter::MainWindow::LoadApplicationSettings()
     DestinationEdit_->setText(ApplicationSettings_.DestinationMode == EOutputDestinationMode::FixedDirectory
                                   ? ApplicationSettings_.LastFixedOutputDirectory
                                   : ApplicationSettings_.SourceRelativeSubdirectory);
+    TimelineWidget_->SetZoomFactor(ApplicationSettings_.TimelineZoomFactor);
     SessionState_.Reset();
     setWindowTitle(QStringLiteral("ClipCutter"));
 }
@@ -1183,6 +1601,7 @@ void ClipCutter::MainWindow::SaveApplicationSettings()
     ApplicationSettings_.PreserveMetadata = Ui_->checkboxCopyMetadata->isChecked();
     ApplicationSettings_.RecursiveFolderImport = RecursiveImportCheckBox_->isChecked();
     ApplicationSettings_.SelectedNamingTemplate = NamingTemplateEdit_->text();
+    ApplicationSettings_.TimelineZoomFactor = TimelineWidget_->ZoomFactor();
     ApplicationSettings_.SavedPrefixes.clear();
     for (int index = 0; index < Ui_->keywordsTree->topLevelItemCount(); ++index)
         ApplicationSettings_.SavedPrefixes.append(Ui_->keywordsTree->topLevelItem(index)->text(KKeywordTextColumn));
@@ -1204,6 +1623,7 @@ void ClipCutter::MainWindow::UpdateOutputPreview()
     context.Prefix = segment->Prefix.value_or(QString());
     context.Index = QueueModel_->RowForSegment(segment->Id) + 1;
     context.Profile = SelectedProfileId();
+    context.Segment = QueueModel_->SegmentIndex(segment->Id) + 1;
     const NamingTemplateResult naming = NamingTemplate::Render(NamingTemplateEdit_->text(), context);
     NamingPreviewLabel_->setText(naming.IsValid() ? QStringLiteral("Preview: %1%2").arg(naming.Value, segment->OutputExtension)
                                                   : naming.Error);
@@ -1265,12 +1685,33 @@ QSet<QUuid> ClipCutter::MainWindow::SelectedSegmentIds() const
 
 void ClipCutter::MainWindow::ApplyNamingTemplateTo(const QSet<QUuid>& ids)
 {
+    QSet<QUuid> targets = ids;
+    if (targets.isEmpty())
+        for (int row = 0; row < QueueModel_->rowCount(); ++row) targets.insert(QueueModel_->SegmentIdAtRow(row));
+    struct PreviousNaming
+    {
+        QUuid Id;
+        QString Name;
+        std::optional<QString> Pattern;
+    };
+    QVector<PreviousNaming> previous;
+    for (const QUuid& id : targets)
+        if (const Segment* segment = QueueModel_->FindSegment(id))
+            previous.append({id, segment->OutputBaseName, segment->NamingTemplatePattern});
     QString error;
-    if (!QueueModel_->ApplyNamingTemplate(ids, NamingTemplateEdit_->text(), QDate::currentDate(), &error))
+    if (!QueueModel_->ApplyNamingTemplate(targets, NamingTemplateEdit_->text(), QDate::currentDate(), &error))
     {
         QMessageBox::warning(this, QStringLiteral("Naming template"), error);
         return;
     }
+    for (const PreviousNaming& item : previous)
+    {
+        QueueModel_->UpdateNamingTemplateData(item.Id, item.Name, item.Pattern);
+    }
+    auto* batch = new QUndoCommand(QStringLiteral("Apply naming template"));
+    for (const PreviousNaming& item : previous)
+        new ChangeNamingTemplateCommand(QueueModel_, item.Id, NamingTemplateEdit_->text(), QDate::currentDate(), batch);
+    UndoStack_->push(batch);
     UpdateCurrentVideoName();
     UpdateOutputPreview();
 }
@@ -1279,10 +1720,7 @@ void ClipCutter::MainWindow::MarkSessionDirty()
 {
     if (LoadingSession_) return;
     SessionState_.MarkModified();
-    setWindowTitle(QStringLiteral("ClipCutter — %1%2")
-                       .arg(SessionState_.FilePath().isEmpty() ? QStringLiteral("Untitled")
-                                                              : QFileInfo(SessionState_.FilePath()).fileName(),
-                            QStringLiteral(" *")));
+    UpdateSessionTitle();
     AutosaveTimer_->start();
 }
 
@@ -1301,6 +1739,8 @@ ClipCutter::SessionData ClipCutter::MainWindow::CurrentSessionData() const
     for (int index = 0; index < Ui_->keywordsTree->topLevelItemCount(); ++index)
         session.SavedPrefixes.append(Ui_->keywordsTree->topLevelItem(index)->text(KKeywordTextColumn));
     session.ExplicitSessionPath = SessionState_.FilePath();
+    session.ActiveClipId = CurrentClipId_;
+    session.ActiveSegmentId = CurrentSegmentId_;
     if (!session.ExplicitSessionPath.isEmpty()) session.ExplicitSaveTimeUtc = QFileInfo(session.ExplicitSessionPath).lastModified().toUTC();
     return session;
 }
@@ -1335,6 +1775,7 @@ void ClipCutter::MainWindow::NewSession()
     QueueModel_->ClearClips();
     ExportController_->SetJobs({});
     JobToSegmentId_.clear();
+    UndoStack_->clear();
     SessionState_.Reset();
     LoadingSession_ = false;
     SessionRepository::RemoveRecovery();
@@ -1384,7 +1825,10 @@ bool ClipCutter::MainWindow::LoadSessionFile(const QString& path, const bool rec
     LoadingSession_ = false;
     for (const Clip& clip : QueueModel_->Clips())
         if (QFileInfo::exists(clip.SourcePath)) MediaProbe_->Probe(clip.Id, clip.SourcePath);
-    if (QueueModel_->rowCount() > 0) OpenVideo(0);
+    UndoStack_->clear();
+    UndoStack_->setClean();
+    const int restoredRow = QueueModel_->RowForSegment(loaded.Session.ActiveSegmentId);
+    if (QueueModel_->rowCount() > 0) OpenVideo(restoredRow >= 0 ? restoredRow : 0);
     if (recovery) SessionState_.MarkModified();
     setWindowTitle(QStringLiteral("ClipCutter — %1%2")
                        .arg(SessionState_.FilePath().isEmpty() ? QStringLiteral("Recovered Untitled")
@@ -1418,6 +1862,7 @@ bool ClipCutter::MainWindow::SaveSession()
         return false;
     }
     SessionState_.MarkSaved(SessionState_.FilePath());
+    UndoStack_->setClean();
     SessionRepository::RemoveRecovery();
     setWindowTitle(QStringLiteral("ClipCutter — %1").arg(QFileInfo(SessionState_.FilePath()).fileName()));
     ApplicationSettings_.RecentSessionFiles.removeAll(SessionState_.FilePath());

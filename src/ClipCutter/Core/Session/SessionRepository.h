@@ -14,7 +14,7 @@ namespace ClipCutter
 {
 struct SessionData
 {
-    static constexpr int CurrentSchemaVersion = 1;
+    static constexpr int CurrentSchemaVersion = 2;
 
     int SchemaVersion = CurrentSchemaVersion;
     std::vector<Clip> Clips;
@@ -28,6 +28,8 @@ struct SessionData
     QDateTime SavedAtUtc;
     QString ExplicitSessionPath;
     QDateTime ExplicitSaveTimeUtc;
+    QUuid ActiveClipId;
+    QUuid ActiveSegmentId;
 };
 
 struct SessionLoadResult
@@ -58,6 +60,7 @@ public:
     bool IsDirty() const noexcept { return Dirty_; }
     QString FilePath() const { return FilePath_; }
     void MarkModified() noexcept { Dirty_ = true; }
+    void SetDirty(bool dirty) noexcept { Dirty_ = dirty; }
     void MarkSaved(QString filePath) { FilePath_ = std::move(filePath); Dirty_ = false; }
     void Reset() { FilePath_.clear(); Dirty_ = false; }
 
