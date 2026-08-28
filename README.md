@@ -1,7 +1,7 @@
 # ClipCutter
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Jimmy-Baby/ClipCutter/blob/main/LICENSE)
 
-![image](https://github.com/user-attachments/assets/108e997f-cf9e-4fe6-a518-30d14dbcb2ae)
+<img width="2560" height="1392" alt="ClipCutter_QPgiauHzso" src="https://github.com/user-attachments/assets/4d8738fb-fc6e-4416-b84a-8cbcc953a69c" />
 
 ## Description
 
